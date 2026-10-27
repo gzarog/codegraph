@@ -256,6 +256,8 @@ fn add_dispatch_sites(
                 | Language::Python
                 | Language::Ruby
                 | Language::Php
+                | Language::Java
+                | Language::Kotlin
                 | Language::C
                 | Language::Cpp
                 | Language::ObjC
@@ -265,6 +267,9 @@ fn add_dispatch_sites(
     }
     let safe = codegraph_frameworks::strip::strip_comments(content, language);
     let mut sites = dispatch::sites(language, &safe);
+    if codegraph_core::search::is_test_path(path) {
+        sites.extend(dispatch::test_request_sites(language, &safe));
+    }
     if codegraph_frameworks::jsx::applies(language) {
         sites.extend(
             codegraph_frameworks::jsx::renders(&safe)

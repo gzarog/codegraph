@@ -301,3 +301,95 @@ fn callbacks_and_rerenders() {
         Some("callback")
     );
 }
+
+#[test]
+fn queues_buses_and_sockets() {
+    let (_d, store) = index(&[
+        (
+            "src/mail/mail.service.ts",
+            "import { Queue } from 'bullmq';\nimport { InjectQueue } from '@nestjs/bullmq';\nexport class MailService {\n  constructor(@InjectQueue('email') private readonly emails: Queue) {}\n  async signup(user: string) {\n    await this.emails.add('welcome', { user });\n  }\n}\n",
+        ),
+        (
+            "src/mail/mail.processor.ts",
+            "import { Processor, Process } from '@nestjs/bull';\n@Processor('email')\nexport class MailProcessor {\n  @Process('welcome')\n  async sendWelcome(job: unknown) {\n    return job;\n  }\n  @Process('reset')\n  async sendReset(job: unknown) {\n    return job;\n  }\n}\n",
+        ),
+        (
+            "src/users/users.service.ts",
+            "export class UsersService {\n  constructor(private eventEmitter: EventEmitter2) {}\n  create() {\n    this.eventEmitter.emit('user.created', {});\n  }\n}\n",
+        ),
+        (
+            "src/users/audit.listener.ts",
+            "export class AuditListener {\n  @OnEvent('user.*')\n  handleUserEvent(payload: unknown) {\n    return payload;\n  }\n}\n",
+        ),
+        (
+            "src/chat/chat.gateway.ts",
+            "@WebSocketGateway()\nexport class ChatGateway {\n  @SubscribeMessage('message')\n  handleMessage(body: string) {\n    return body;\n  }\n}\n",
+        ),
+        (
+            "web/chat.ts",
+            "export function send(socket: any, text: string) {\n  socket.emit('message', text);\n}\n",
+        ),
+    ]);
+    assert_eq!(
+        synth(&store, "signup", "sendWelcome").as_deref(),
+        Some("queue")
+    );
+    assert_eq!(synth(&store, "signup", "sendReset"), None);
+    assert_eq!(
+        synth(&store, "create", "handleUserEvent").as_deref(),
+        Some("bus")
+    );
+    assert_eq!(
+        synth(&store, "send", "handleMessage").as_deref(),
+        Some("bus")
+    );
+}
+
+#[test]
+fn spring_tests_reach_their_routes() {
+    let (_d, store) = index(&[
+        (
+            "pom.xml",
+            "<project><dependencies><dependency><artifactId>spring-boot-starter-web</artifactId></dependency></dependencies></project>\n",
+        ),
+        (
+            "src/main/java/app/OwnerController.java",
+            "package app;\n@RestController\n@RequestMapping(\"/owners\")\npublic class OwnerController {\n  @PostMapping(\"/new\")\n  public String create() { return \"ok\"; }\n}\n",
+        ),
+        (
+            "src/test/java/app/OwnerControllerTests.java",
+            "package app;\nimport static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;\nclass OwnerControllerTests {\n  void createsOwner() throws Exception {\n    mockMvc.perform(post(\"/owners/new\"));\n  }\n}\n",
+        ),
+    ]);
+    let test = &store.nodes_named("createsOwner").unwrap()[0];
+    let targets: Vec<String> = store
+        .outgoing_edges(&test.id, &[EdgeKind::Calls])
+        .unwrap()
+        .iter()
+        .filter_map(|e| store.node(&e.target).unwrap())
+        .map(|n| n.name)
+        .collect();
+    assert!(
+        targets.iter().any(|n| n.contains("/owners/new")),
+        "{targets:?}"
+    );
+}
+
+#[test]
+fn go_function_fields() {
+    let (_d, store) = index(&[
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        (
+            "discovery/refresh/refresh.go",
+            "package refresh\n\nimport \"context\"\n\ntype Options struct {\n\tInterval int\n\tRefreshF func(ctx context.Context) error\n}\n\ntype Discovery struct {\n\trefreshf func(ctx context.Context) error\n}\n\nfunc NewDiscovery(opts Options) *Discovery {\n\treturn &Discovery{refreshf: opts.RefreshF}\n}\n\nfunc (d *Discovery) refresh(ctx context.Context) error {\n\treturn d.refreshf(ctx)\n}\n",
+        ),
+        (
+            "discovery/aws/ec2.go",
+            "package aws\n\nimport (\n\t\"context\"\n\t\"example.com/app/discovery/refresh\"\n)\n\ntype EC2Discovery struct{}\n\nfunc (d *EC2Discovery) fetch(ctx context.Context) error { return nil }\n\nfunc New() *refresh.Discovery {\n\td := &EC2Discovery{}\n\treturn refresh.NewDiscovery(refresh.Options{Interval: 5, RefreshF: d.fetch})\n}\n",
+        ),
+    ]);
+    assert_eq!(
+        synth(&store, "refresh", "fetch").as_deref(),
+        Some("go-func-field")
+    );
+}

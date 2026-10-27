@@ -9,8 +9,10 @@
 
 mod backend;
 mod callbacks;
+mod go;
 mod js;
 mod native;
+mod tier;
 mod types;
 
 use codegraph_core::{Edge, EdgeKind, Language, Node, NodeKind, Provenance};
@@ -306,11 +308,14 @@ const PASSES: &[(&str, Pass)] = &[
     ("override", types::overrides),
     ("kotlin-expect-actual", types::kotlin_expect_actual),
     ("go-grpc", types::go_grpc_stubs),
+    ("queue", tier::queues),
+    ("bus", tier::events),
     ("callback", callbacks::field_channels),
     ("closure-collection", callbacks::closure_collections),
     ("react-render", callbacks::react_render),
     ("flutter-build", callbacks::flutter_build),
     ("gin-middleware", callbacks::gin_middleware),
+    ("go-func-field", go::func_fields),
     ("sveltekit-load", callbacks::sveltekit_load),
     ("redux-thunk", js::redux_thunks),
     ("object-registry", js::object_registries),

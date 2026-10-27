@@ -396,9 +396,9 @@ fn step_kind(u: &Node, v: &Node, e: &Edge, site: &str) -> Option<&'static str> {
     match dispatch {
         Some("event") => return Some("event"),
         Some("fnptr" | "object-registry") => return Some("trigger"),
-        Some("celery" | "sidekiq" | "spring-event" | "laravel-event" | "mediatr") => {
-            return Some("event")
-        }
+        Some(
+            "celery" | "sidekiq" | "spring-event" | "laravel-event" | "mediatr" | "queue" | "bus",
+        ) => return Some("event"),
         Some("pinia" | "vuex" | "redux-thunk" | "rtk-query") => return Some("store"),
         _ => {}
     }
