@@ -181,7 +181,28 @@ pub struct Server {
     projects: HashMap<PathBuf, Arc<Mutex<CodeGraph>>>,
     tools: Vec<String>,
     watch: bool,
-    watchers: Vec<crate::watch::Watcher>,
+    watchers: HashMap<PathBuf, crate::watch::Watcher>,
+}
+
+/// Prefix `text` with a warning naming the files it mentions that changed on
+/// disk but aren't re-indexed yet.
+pub fn with_staleness_banner(text: String, pending: &[String]) -> String {
+    let mentioned: Vec<&String> = pending
+        .iter()
+        .filter(|p| text.contains(p.as_str()))
+        .collect();
+    if mentioned.is_empty() {
+        return text;
+    }
+    let list = mentioned
+        .iter()
+        .take(10)
+        .map(|p| p.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "⚠️ Some files referenced below were edited since the last index sync and are pending re-index: {list}. Read those specific files for accurate content; everything else below is fresh.\n\n{text}"
+    )
 }
 
 fn text_result(text: String) -> Value {
@@ -216,7 +237,7 @@ impl Server {
             projects: HashMap::new(),
             tools: enabled_tools(),
             watch,
-            watchers: Vec::new(),
+            watchers: HashMap::new(),
         }
     }
 
@@ -239,7 +260,7 @@ impl Server {
         let cg = Arc::new(Mutex::new(cg));
         if self.watch {
             if let Ok(w) = crate::watch::watch(cg.clone(), |_| {}) {
-                self.watchers.push(w);
+                self.watchers.insert(root.clone(), w);
             }
         }
         self.projects.insert(root, cg.clone());
@@ -312,12 +333,20 @@ impl Server {
             Ok(cg) => cg,
             Err(e) => return error_result(e),
         };
-        let guard = match cg.lock() {
+        let mut guard = match cg.lock() {
             Ok(g) => g,
             Err(p) => p.into_inner(),
         };
+        let pending = match self.watchers.get(guard.root()) {
+            Some(w) => w.pending(),
+            None => {
+                // No watcher: catch up now (unchanged files are skipped by stat).
+                let _ = guard.sync(None);
+                Vec::new()
+            }
+        };
         match run_tool(&guard, name, args) {
-            Ok(text) => text_result(text),
+            Ok(text) => text_result(with_staleness_banner(text, &pending)),
             Err(e) => error_result(e),
         }
     }
@@ -514,11 +543,60 @@ fn node_tool(cg: &CodeGraph, args: &Value) -> Result<String, String> {
     Ok(out)
 }
 
+/// Exit when the agent that launched us dies. An agent killed without closing
+/// our stdin would otherwise leave this server (and its watcher) running;
+/// on Unix the orphan is reparented, which changes `getppid()`.
+fn exit_with_parent() {
+    #[cfg(unix)]
+    {
+        let parent = unsafe { libc::getppid() };
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            if unsafe { libc::getppid() } != parent {
+                std::process::exit(0);
+            }
+        });
+    }
+}
+
 /// Run the stdio server rooted at `root` (or the client's root).
 pub fn serve_stdio(root: Option<&Path>, watch: bool) -> std::io::Result<()> {
+    exit_with_parent();
     let default_root = root.and_then(find_root);
     let mut server = Server::new(default_root, watch);
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     server.run(stdin.lock(), stdout.lock())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn banner_names_only_mentioned_pending_files() {
+        let text = "## src/a.ts\n1\tx\n".to_string();
+        assert_eq!(
+            with_staleness_banner(text.clone(), &["src/b.ts".into()]),
+            text
+        );
+        let out = with_staleness_banner(text, &["src/a.ts".into(), "src/b.ts".into()]);
+        assert!(out.starts_with("⚠️") && out.contains("src/a.ts") && !out.contains("src/b.ts."));
+    }
+
+    #[test]
+    fn handshake_and_unknown_project() {
+        let mut s = Server::new(None, false);
+        let init = s.handle(&json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}})).unwrap();
+        assert_eq!(init["result"]["protocolVersion"], "2024-11-05");
+        assert!(s
+            .handle(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))
+            .is_none());
+        let call = s.handle(&json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "codegraph_explore", "arguments": {"query": "x"}}})).unwrap();
+        assert_eq!(call["result"]["isError"], true);
+        let bad = s
+            .handle(&json!({"jsonrpc": "2.0", "id": 3, "method": "nope"}))
+            .unwrap();
+        assert_eq!(bad["error"]["code"], -32601);
+    }
 }

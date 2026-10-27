@@ -2,7 +2,9 @@
 //! agents. This crate is the project facade, the MCP server and the CLI.
 
 pub mod format;
+pub mod githooks;
 pub mod installer;
+pub mod lock;
 pub mod mcp;
 pub mod project;
 pub mod prompt;

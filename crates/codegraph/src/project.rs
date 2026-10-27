@@ -25,7 +25,12 @@ pub enum ProjectError {
     Index(#[from] codegraph_index::IndexError),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    #[error("another codegraph process (pid {0}) is updating this index; try again shortly, or run `codegraph unlock` if that process is gone")]
+    Locked(u32),
 }
+
+/// How long a writer waits for another to finish before giving up.
+const LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 pub type Result<T> = std::result::Result<T, ProjectError>;
 
@@ -201,6 +206,7 @@ impl CodeGraph {
         &mut self,
         progress: Option<&(dyn Fn(codegraph_index::Progress) + Sync)>,
     ) -> Result<IndexReport> {
+        let _lock = self.writer_lock()?;
         self.reload_config();
         self.store.clear()?;
         let report = index_project(
@@ -222,6 +228,7 @@ impl CodeGraph {
         &mut self,
         progress: Option<&(dyn Fn(codegraph_index::Progress) + Sync)>,
     ) -> Result<IndexReport> {
+        let _lock = self.writer_lock()?;
         self.reload_config();
         let report = index_project(
             &mut self.store,
@@ -233,6 +240,15 @@ impl CodeGraph {
             },
         )?;
         Ok(report)
+    }
+
+    fn writer_lock(&self) -> Result<crate::lock::WriterLock> {
+        match crate::lock::acquire(&self.root, LOCK_WAIT)? {
+            Some(lock) => Ok(lock),
+            None => Err(ProjectError::Locked(
+                crate::lock::holder(&self.root).unwrap_or(0),
+            )),
+        }
     }
 
     /// Files that changed on disk since the last index (cheap: size+mtime, then hash).

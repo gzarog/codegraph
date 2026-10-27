@@ -180,6 +180,15 @@ enum Command {
     },
     /// Keep the index in sync with file changes until interrupted
     Watch { path: Option<PathBuf> },
+    /// Remove a stale writer lock left by a crashed codegraph process
+    Unlock { path: Option<PathBuf> },
+    /// Git hooks that sync the index after commit, merge and checkout
+    GitHooks {
+        /// install or remove
+        action: String,
+        #[command(flatten)]
+        path: PathOpt,
+    },
     /// Run the MCP server
     Serve {
         #[command(flatten)]
@@ -483,10 +492,47 @@ fn run(cli: Cli) -> Result<()> {
         }
         Command::Uninit { path } => {
             let root = path.unwrap_or_else(cwd);
+            if codegraph::githooks::installed(&root) {
+                codegraph::githooks::remove(&root)?;
+                println!("Removed the CodeGraph git hooks.");
+            }
             if CodeGraph::uninit(&root)? {
                 println!("Removed the CodeGraph index from {}", root.display());
             } else {
                 println!("{} has no CodeGraph index.", root.display());
+            }
+        }
+        Command::Unlock { path } => {
+            let root = codegraph::find_root(&path.unwrap_or_else(cwd))
+                .context("no CodeGraph index found")?;
+            match codegraph::lock::force_unlock(&root)? {
+                Some(pid) if pid > 0 => println!("Removed the writer lock held by pid {pid}."),
+                Some(_) => println!("Removed the writer lock."),
+                None => println!("The index isn't locked."),
+            }
+        }
+        Command::GitHooks { action, path } => {
+            let root = match path.path {
+                Some(p) => p,
+                None => codegraph::find_root(&cwd()).unwrap_or_else(cwd),
+            };
+            match action.as_str() {
+                "install" => {
+                    for p in codegraph::githooks::install(&root)? {
+                        println!("  updated {}", p.display());
+                    }
+                    println!("The index now syncs after commit, merge and checkout.");
+                }
+                "remove" | "uninstall" => {
+                    let removed = codegraph::githooks::remove(&root)?;
+                    if removed.is_empty() {
+                        println!("No CodeGraph git hooks found.");
+                    }
+                    for p in removed {
+                        println!("  cleaned {}", p.display());
+                    }
+                }
+                other => bail!("unknown action `{other}` (install, remove)"),
             }
         }
         Command::Index { path, force, quiet } => {

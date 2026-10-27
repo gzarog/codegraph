@@ -107,12 +107,7 @@ fn scan(root: &Path, rel: &str) -> Option<Scanned> {
     if !meta.is_file() {
         return None;
     }
-    let modified_at = meta
-        .modified()
-        .ok()
-        .and_then(|m| m.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0);
+    let modified_at = mtime_ms(&meta);
     let size = meta.len();
     if size > MAX_SOURCE_FILE_SIZE_BYTES {
         return Some(Scanned {
@@ -134,6 +129,14 @@ fn scan(root: &Path, rel: &str) -> Option<Scanned> {
         modified_at,
         content,
     })
+}
+
+fn mtime_ms(meta: &std::fs::Metadata) -> i64 {
+    meta.modified()
+        .ok()
+        .and_then(|m| m.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 fn file_only_result(
@@ -263,7 +266,11 @@ pub fn index_project(
             .metadata("frameworks")?
             .is_some_and(|prev| prev != framework_names);
     store.set_metadata("frameworks", &framework_names)?;
-    let known = store.file_hashes()?;
+    let known: HashMap<String, FileRecord> = store
+        .all_files()?
+        .into_iter()
+        .map(|f| (f.path.clone(), f))
+        .collect();
     let mut report = IndexReport {
         files_scanned: files.len(),
         ..Default::default()
@@ -280,11 +287,29 @@ pub fn index_project(
         store.delete_file(path)?;
     }
 
-    let scanned: Vec<Scanned> = files.par_iter().filter_map(|rel| scan(root, rel)).collect();
-    let todo: Vec<Scanned> = scanned
-        .into_iter()
-        .filter(|s| force || known.get(&s.path) != Some(&s.hash))
+    // Size and mtime unchanged since the last index: skip without reading.
+    let stat_unchanged = |rel: &str| -> bool {
+        let Some(rec) = known.get(rel) else {
+            return false;
+        };
+        let Ok(meta) = std::fs::metadata(root.join(rel)) else {
+            return false;
+        };
+        meta.len() == rec.size && mtime_ms(&meta) == rec.modified_at
+    };
+    let scanned: Vec<Scanned> = files
+        .par_iter()
+        .filter(|rel| force || !stat_unchanged(rel))
+        .filter_map(|rel| scan(root, rel))
         .collect();
+    let (todo, touched): (Vec<Scanned>, Vec<Scanned>) = scanned
+        .into_iter()
+        .partition(|s| force || known.get(&s.path).map(|r| &r.content_hash) != Some(&s.hash));
+    // Same content, new mtime (a touch or a checkout): remember the mtime so
+    // the next sync skips the file without reading it.
+    for s in &touched {
+        store.set_file_modified_at(&s.path, s.modified_at)?;
+    }
     report.files_unchanged = report.files_scanned - todo.len();
     for s in &todo {
         if known.contains_key(&s.path) {

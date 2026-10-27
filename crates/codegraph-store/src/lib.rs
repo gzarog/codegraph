@@ -735,6 +735,15 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Record a new mtime for a file whose content didn't change.
+    pub fn set_file_modified_at(&self, path: &str, modified_at: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE files SET modified_at = ? WHERE path = ?",
+            params![modified_at, path],
+        )?;
+        Ok(())
+    }
+
     pub fn file_count(&self) -> Result<u64> {
         Ok(self
             .conn
