@@ -208,6 +208,9 @@ enum Command {
         /// Don't pre-allow the codegraph tools (Claude Code)
         #[arg(long)]
         no_permissions: bool,
+        /// Also add a Claude Code prompt hook that front-loads explore output on structural prompts
+        #[arg(long)]
+        prompt_hook: bool,
         /// Print the config snippet for one agent and exit
         #[arg(long, value_name = "ID")]
         print_config: Option<String>,
@@ -221,6 +224,9 @@ enum Command {
         #[arg(short, long)]
         yes: bool,
     },
+    /// Claude Code UserPromptSubmit hook (reads {prompt, cwd} JSON on stdin)
+    #[command(hide = true)]
+    PromptHook,
     /// Print the version
     Version,
 }
@@ -758,6 +764,7 @@ fn run(cli: Cli) -> Result<()> {
             yes,
             init,
             no_permissions,
+            prompt_hook,
             print_config,
         } => {
             let env = Env::current();
@@ -776,7 +783,11 @@ fn run(cli: Cli) -> Result<()> {
                 println!("No agents selected. Pass --target (e.g. --target claude,cursor) or --target all.");
             }
             for t in &targets {
-                let o = t.install(&env, loc, !no_permissions)?;
+                let opts = installer::InstallOptions {
+                    auto_allow: !no_permissions,
+                    prompt_hook,
+                };
+                let o = t.install(&env, loc, opts)?;
                 print_outcome(t.display_name, &o);
             }
             if !targets.is_empty() {
@@ -802,6 +813,28 @@ fn run(cli: Cli) -> Result<()> {
             for t in &targets {
                 let o = t.uninstall(&env, loc)?;
                 print_outcome(t.display_name, &o);
+            }
+        }
+        Command::PromptHook => {
+            if std::env::var("CODEGRAPH_NO_PROMPT_HOOK").as_deref() == Ok("1")
+                || std::io::stdin().is_terminal()
+            {
+                return Ok(());
+            }
+            let mut raw = String::new();
+            std::io::stdin().read_to_string(&mut raw)?;
+            // A hook must never break the user's prompt: any failure is silent.
+            let Ok(input) = serde_json::from_str::<serde_json::Value>(&raw) else {
+                return Ok(());
+            };
+            let prompt = input.get("prompt").and_then(|p| p.as_str()).unwrap_or("");
+            let cwd = input
+                .get("cwd")
+                .and_then(|c| c.as_str())
+                .map(PathBuf::from)
+                .unwrap_or_else(cwd);
+            if let Some(text) = codegraph::prompt::run(prompt, &cwd) {
+                print!("{text}");
             }
         }
         Command::Version => println!("codegraph {}", env!("CARGO_PKG_VERSION")),

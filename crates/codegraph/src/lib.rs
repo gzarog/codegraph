@@ -5,6 +5,7 @@ pub mod format;
 pub mod installer;
 pub mod mcp;
 pub mod project;
+pub mod prompt;
 pub mod watch;
 
 pub use codegraph_context::{ContextFormat, ContextOptions};

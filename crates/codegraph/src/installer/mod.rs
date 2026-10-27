@@ -597,6 +597,115 @@ fn remove_permission(path: &Path) -> std::io::Result<FileChange> {
     })
 }
 
+pub const PROMPT_HOOK_COMMAND: &str = if cfg!(windows) {
+    "codegraph.exe prompt-hook"
+} else {
+    "codegraph prompt-hook"
+};
+
+fn is_prompt_hook(v: &Value) -> bool {
+    v["command"].as_str().is_some_and(|c| {
+        c.contains("codegraph prompt-hook") || c.contains("codegraph.exe prompt-hook")
+    })
+}
+
+/// The `UserPromptSubmit` hook groups with every codegraph hook removed.
+fn groups_without_prompt_hook(v: &Value) -> (Vec<Value>, bool) {
+    let mut removed = false;
+    let groups = v["hooks"]["UserPromptSubmit"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|mut g| {
+            let hooks = g["hooks"].as_array().cloned().unwrap_or_default();
+            let kept: Vec<Value> = hooks
+                .iter()
+                .filter(|h| !is_prompt_hook(h))
+                .cloned()
+                .collect();
+            removed |= kept.len() != hooks.len();
+            if kept.is_empty() && !hooks.is_empty() {
+                return None;
+            }
+            g["hooks"] = Value::Array(kept);
+            Some(g)
+        })
+        .collect();
+    (groups, removed)
+}
+
+/// Register `codegraph prompt-hook` as a Claude Code `UserPromptSubmit` hook.
+fn add_prompt_hook(path: &Path) -> std::io::Result<FileChange> {
+    let text = read(path);
+    let v = jsonc::parse(&text).unwrap_or(json!({}));
+    let installed = v["hooks"]["UserPromptSubmit"].as_array().is_some_and(|gs| {
+        gs.iter().any(|g| {
+            g["hooks"]
+                .as_array()
+                .is_some_and(|hs| hs.iter().any(|h| h["command"] == PROMPT_HOOK_COMMAND))
+        })
+    });
+    if installed {
+        return Ok(FileChange {
+            path: path.to_path_buf(),
+            action: Action::Unchanged,
+        });
+    }
+    // Replace any older spelling of the hook with the current one.
+    let (mut groups, _) = groups_without_prompt_hook(&v);
+    groups.push(json!({ "hooks": [{ "type": "command", "command": PROMPT_HOOK_COMMAND }] }));
+    let new = jsonc::set(&text, &["hooks", "UserPromptSubmit"], &Value::Array(groups))
+        .unwrap_or(text.clone());
+    let action = if path.exists() {
+        Action::Updated
+    } else {
+        Action::Created
+    };
+    write(path, &new)?;
+    Ok(FileChange {
+        path: path.to_path_buf(),
+        action,
+    })
+}
+
+fn remove_prompt_hook(path: &Path) -> std::io::Result<FileChange> {
+    let text = read(path);
+    let Some(v) = jsonc::parse(&text) else {
+        return Ok(FileChange {
+            path: path.to_path_buf(),
+            action: Action::NotFound,
+        });
+    };
+    let (groups, removed) = groups_without_prompt_hook(&v);
+    if !removed {
+        return Ok(FileChange {
+            path: path.to_path_buf(),
+            action: Action::NotFound,
+        });
+    }
+    let new = if groups.is_empty() {
+        remove_and_prune(&text, &["hooks", "UserPromptSubmit"]).unwrap_or(text.clone())
+    } else {
+        jsonc::set(&text, &["hooks", "UserPromptSubmit"], &Value::Array(groups))
+            .unwrap_or(text.clone())
+    };
+    write_or_delete(path, &new)?;
+    Ok(FileChange {
+        path: path.to_path_buf(),
+        action: Action::Removed,
+    })
+}
+
+/// What `install` adds beyond the MCP server entry.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct InstallOptions {
+    /// Pre-allow the codegraph tools (Claude Code).
+    pub auto_allow: bool,
+    /// Front-load explore output on structural prompts (Claude Code).
+    pub prompt_hook: bool,
+}
+
 impl Target {
     pub fn supports(&self, loc: Location) -> bool {
         self.locations.contains(&loc)
@@ -644,7 +753,12 @@ impl Target {
         format!("# Add to {}\n\n{body}\n", path.display())
     }
 
-    pub fn install(&self, env: &Env, loc: Location, auto_allow: bool) -> std::io::Result<Outcome> {
+    pub fn install(
+        &self,
+        env: &Env,
+        loc: Location,
+        opts: InstallOptions,
+    ) -> std::io::Result<Outcome> {
         let mut out = Outcome::default();
         let path = self.config_path(env, loc);
         let existing = read(&path);
@@ -689,8 +803,11 @@ impl Target {
             write(&path, &new)?;
         }
         out.files.push(FileChange { path, action });
-        if self.id == "claude" && auto_allow {
+        if self.id == "claude" && opts.auto_allow {
             out.files.push(add_permission(&claude_settings(env, loc))?);
+        }
+        if self.id == "claude" && opts.prompt_hook {
+            out.files.push(add_prompt_hook(&claude_settings(env, loc))?);
         }
         if let Some(instr) = self.instructions {
             out.files.push(upsert_instructions(&instr(env, loc))?);
@@ -726,6 +843,10 @@ impl Target {
         if self.id == "claude" {
             out.files
                 .push(remove_permission(&claude_settings(env, loc))?);
+            let hook = remove_prompt_hook(&claude_settings(env, loc))?;
+            if hook.action == Action::Removed {
+                out.files.push(hook);
+            }
         }
         if let Some(instr) = self.instructions {
             out.files.push(remove_instructions(&instr(env, loc))?);
@@ -759,11 +880,15 @@ mod tests {
         let (_d, env) = env();
         for t in targets() {
             for &loc in t.locations {
-                let first = t.install(&env, loc, true).unwrap();
+                let opts = InstallOptions {
+                    auto_allow: true,
+                    prompt_hook: true,
+                };
+                let first = t.install(&env, loc, opts).unwrap();
                 assert_ne!(first.files[0].action, Action::Unchanged, "{} {loc:?}", t.id);
                 assert!(t.is_configured(&env, loc), "{} {loc:?}", t.id);
                 // Re-running changes nothing.
-                let again = t.install(&env, loc, true).unwrap();
+                let again = t.install(&env, loc, opts).unwrap();
                 assert!(
                     again.files.iter().all(|f| f.action == Action::Unchanged),
                     "{} {loc:?}: {:?}",
@@ -790,12 +915,22 @@ mod tests {
             "{\n  \"mcpServers\": {\n    \"other\": { \"command\": \"x\" }\n  }\n}\n",
         )
         .unwrap();
-        claude.install(&env, Location::Local, true).unwrap();
+        claude
+            .install(
+                &env,
+                Location::Local,
+                InstallOptions {
+                    auto_allow: true,
+                    prompt_hook: true,
+                },
+            )
+            .unwrap();
         let v = jsonc::parse(&std::fs::read_to_string(&mcp).unwrap()).unwrap();
         assert_eq!(v["mcpServers"]["other"]["command"], "x");
         assert_eq!(v["mcpServers"]["codegraph"]["command"], "codegraph");
         let settings = std::fs::read_to_string(env.cwd.join(".claude/settings.json")).unwrap();
         assert!(settings.contains(PERMISSION));
+        assert!(settings.contains(PROMPT_HOOK_COMMAND));
         let md = std::fs::read_to_string(env.cwd.join(".claude/CLAUDE.md")).unwrap();
         assert!(md.contains(SECTION_START));
         claude.uninstall(&env, Location::Local).unwrap();
