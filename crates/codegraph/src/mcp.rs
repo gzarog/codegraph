@@ -595,9 +595,11 @@ pub fn serve_stdio(root: Option<&Path>, watch: bool) -> std::io::Result<()> {
     // Telemetry: send completed days now, keep counts on disk every minute.
     std::thread::spawn(|| {
         crate::telemetry::flush();
-        for tick in 1u64.. {
+        let mut minutes = 0u32;
+        loop {
             std::thread::sleep(std::time::Duration::from_secs(60));
-            if tick % 60 == 0 {
+            minutes = (minutes + 1) % 60;
+            if minutes == 0 {
                 crate::telemetry::flush();
             } else {
                 crate::telemetry::persist();
