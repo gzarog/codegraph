@@ -13,6 +13,7 @@ use codegraph_core::{
     detect_language, now_ms, ExtractionError, ExtractionResult, FileRecord, Language, Node,
     NodeKind, Severity,
 };
+use codegraph_frameworks::Framework;
 use codegraph_store::Store;
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
@@ -176,13 +177,22 @@ pub fn extract(path: &str, language: Language, content: &str) -> ExtractionResul
     result
 }
 
-fn build(config: &ProjectConfig, s: Scanned) -> (FileRecord, ExtractionResult) {
+fn build(
+    config: &ProjectConfig,
+    frameworks: &[Framework],
+    s: Scanned,
+) -> (FileRecord, ExtractionResult) {
     let (language, mut result, generated) = match &s.content {
         Some(content) => {
             let language = config
                 .language_override(&s.path)
                 .unwrap_or_else(|| detect_language(&s.path, Some(content)));
-            let result = extract(&s.path, language, content);
+            let mut result = extract(&s.path, language, content);
+            let routes =
+                codegraph_frameworks::extract_routes(frameworks, &s.path, language, content);
+            result.nodes.extend(routes.nodes);
+            result.edges.extend(routes.edges);
+            result.unresolved_references.extend(routes.refs);
             (language, result, generated::is_generated(&s.path, content))
         }
         None => {
@@ -240,6 +250,19 @@ pub fn index_project(
     };
     progress(Progress::Scanning);
     let files = discover_files(root, config);
+    let frameworks =
+        codegraph_frameworks::detect(&codegraph_frameworks::ProjectInfo::scan(root, &files));
+    let framework_names = frameworks
+        .iter()
+        .map(|f| f.name())
+        .collect::<Vec<_>>()
+        .join(",");
+    // A framework appearing or disappearing changes what unchanged files yield.
+    let force = opts.force
+        || store
+            .metadata("frameworks")?
+            .is_some_and(|prev| prev != framework_names);
+    store.set_metadata("frameworks", &framework_names)?;
     let known = store.file_hashes()?;
     let mut report = IndexReport {
         files_scanned: files.len(),
@@ -260,7 +283,7 @@ pub fn index_project(
     let scanned: Vec<Scanned> = files.par_iter().filter_map(|rel| scan(root, rel)).collect();
     let todo: Vec<Scanned> = scanned
         .into_iter()
-        .filter(|s| opts.force || known.get(&s.path) != Some(&s.hash))
+        .filter(|s| force || known.get(&s.path) != Some(&s.hash))
         .collect();
     report.files_unchanged = report.files_scanned - todo.len();
     for s in &todo {
@@ -282,7 +305,7 @@ pub fn index_project(
         let built: Vec<(FileRecord, ExtractionResult)> = batch
             .into_par_iter()
             .map(|s| {
-                let out = build(config, s);
+                let out = build(config, &frameworks, s);
                 let n = done.fetch_add(1, Ordering::Relaxed) + 1;
                 if n % 50 == 0 || n == total {
                     progress(Progress::Extracting { done: n, total });
@@ -311,7 +334,7 @@ pub fn index_project(
         });
     }
 
-    if report.changed_anything() || opts.force {
+    if report.changed_anything() || force {
         // New symbols may satisfy references that failed before.
         if !new_names.is_empty() {
             store.reopen_failed_refs_named(&new_names)?;

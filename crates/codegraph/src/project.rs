@@ -100,6 +100,7 @@ pub struct Status {
     pub pending: PendingChanges,
     pub pending_refs: u64,
     pub failed_refs: u64,
+    pub frameworks: Vec<String>,
 }
 
 /// An open project index.
@@ -285,6 +286,16 @@ impl CodeGraph {
             pending: self.pending_changes()?,
             pending_refs: self.store.count_refs(codegraph_store::RefStatus::Pending)?,
             failed_refs: self.store.count_refs(codegraph_store::RefStatus::Failed)?,
+            frameworks: self
+                .store
+                .metadata("frameworks")?
+                .map(|f| {
+                    f.split(',')
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
         })
     }
 

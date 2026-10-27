@@ -334,6 +334,9 @@ pub fn status(s: &Status) -> String {
             .collect();
         let _ = writeln!(out, "Symbols: {}", kinds.join(", "));
     }
+    if !s.frameworks.is_empty() {
+        let _ = writeln!(out, "Frameworks: {}", s.frameworks.join(", "));
+    }
     let _ = writeln!(
         out,
         "References: {} unresolved (external or unknown), {} pending",

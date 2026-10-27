@@ -10,6 +10,7 @@ codegraph-core.workspace = true
 codegraph-extract.workspace = true
 codegraph-store.workspace = true
 codegraph-resolve.workspace = true
+codegraph-frameworks.workspace = true
 ignore.workspace = true
 globset.workspace = true
 rayon.workspace = true

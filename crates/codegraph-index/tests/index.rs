@@ -100,3 +100,74 @@ fn indexes_resolves_and_syncs() {
         .iter()
         .all(|n| n.name != "Svc"));
 }
+
+#[test]
+fn framework_routes_link_to_handlers() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(
+        root,
+        "package.json",
+        r#"{"dependencies": {"express": "4", "@nestjs/core": "10"}}"#,
+    );
+    write(
+        root,
+        "src/handlers.ts",
+        "export function listUsers(req, res) { res.json([]); }\n",
+    );
+    write(
+        root,
+        "src/server.ts",
+        "import express from 'express';\nimport { listUsers } from './handlers';\nconst app = express();\napp.get('/users', listUsers);\n",
+    );
+    write(
+        root,
+        "src/cats.controller.ts",
+        "@Controller('cats')\nexport class CatsController {\n  @Get(':id')\n  findOne() { return 1; }\n}\n",
+    );
+    write(root, "requirements.txt", "fastapi\n");
+    write(root, "api/main.py", "router = APIRouter(prefix='/items')\n@router.get('/{id}')\ndef read_item(id: int):\n    return id\n");
+
+    let mut store = Store::open_in_memory().unwrap();
+    index_project(
+        &mut store,
+        root,
+        &ProjectConfig::default(),
+        &IndexOptions::default(),
+    )
+    .unwrap();
+    let routes: Vec<String> = store
+        .nodes_by_kind(NodeKind::Route)
+        .unwrap()
+        .into_iter()
+        .map(|n| n.name)
+        .collect();
+    assert!(routes.contains(&"GET /users".to_string()), "{routes:?}");
+    assert!(routes.contains(&"GET /cats/:id".to_string()), "{routes:?}");
+    assert!(
+        routes.contains(&"GET /items/{id}".to_string()),
+        "{routes:?}"
+    );
+    assert!(edge_exists(
+        &store,
+        "GET /users",
+        "listUsers",
+        EdgeKind::References
+    ));
+    assert!(edge_exists(
+        &store,
+        "GET /cats/:id",
+        "findOne",
+        EdgeKind::References
+    ));
+    assert!(edge_exists(
+        &store,
+        "GET /items/{id}",
+        "read_item",
+        EdgeKind::References
+    ));
+    assert_eq!(
+        store.metadata("frameworks").unwrap().as_deref(),
+        Some("express,nestjs,fastapi")
+    );
+}

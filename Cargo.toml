@@ -16,7 +16,7 @@ codegraph-index = { path = "crates/codegraph-index" }
 codegraph-resolve = { path = "crates/codegraph-resolve" }
 codegraph-graph = { path = "crates/codegraph-graph" }
 codegraph-context = { path = "crates/codegraph-context" }
-codegraph-mcp = { path = "crates/codegraph-mcp" }
+codegraph-frameworks = { path = "crates/codegraph-frameworks" }
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

@@ -220,6 +220,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "codegraph-frameworks"
+version = "0.1.0"
+dependencies = [
+ "codegraph-core",
+ "codegraph-extract",
+ "regex",
+ "serde_json",
+]
+
+[[package]]
 name = "codegraph-graph"
 version = "0.1.0"
 dependencies = [
@@ -236,6 +246,7 @@ version = "0.1.0"
 dependencies = [
  "codegraph-core",
  "codegraph-extract",
+ "codegraph-frameworks",
  "codegraph-resolve",
  "codegraph-store",
  "globset",
