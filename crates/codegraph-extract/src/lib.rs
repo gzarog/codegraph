@@ -44,6 +44,7 @@ mod rlang;
 mod ruby;
 mod rustlang;
 mod scala;
+mod sfc;
 mod stack;
 mod swift;
 mod textutil;
@@ -72,6 +73,15 @@ pub fn supported_languages() -> &'static [&'static str] {
 /// Whether `language` has a dedicated extraction walker.
 pub fn supports(language: Language) -> bool {
     langs::LANGUAGES.contains(&language.as_str())
+        || matches!(
+            language,
+            Language::Svelte
+                | Language::Vue
+                | Language::Astro
+                | Language::ArkTs
+                | Language::Liquid
+                | Language::Razor
+        )
 }
 
 /// The C function-pointer facts for one file (see cfnptr.rs).
@@ -82,6 +92,15 @@ pub use cfnptr::{
 /// Extract one file. A file the walker can't finish (a stack-guard trip on a
 /// pathologically nested file) comes back with no symbols and one error.
 pub fn extract_file(file_path: &str, content: &str, language: Language) -> ExtractionResult {
+    match language {
+        Language::Svelte | Language::Vue | Language::Astro => {
+            return sfc::extract_component(file_path, content, language)
+        }
+        Language::ArkTs => return sfc::extract_arkts(file_path, content),
+        Language::Liquid => return sfc::extract_liquid(file_path, content),
+        Language::Razor => return sfc::extract_razor(file_path, content),
+        _ => {}
+    }
     let started = std::time::Instant::now();
     let lang = language.as_str();
     PARSE_ERRORS.with(|f| f.set(false));

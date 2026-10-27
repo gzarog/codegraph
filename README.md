@@ -59,8 +59,16 @@ comma list such as `explore,node,callers`) to also expose `codegraph_search`,
 
 Full symbol and reference extraction: TypeScript, TSX, JavaScript, JSX,
 Python, Go, Rust, Java, Kotlin, Scala, C, C++, C#, PHP, Ruby, Swift, Dart, Lua,
-Luau and R. Other recognized files (Svelte, Vue, Astro, Pascal, Solidity,
-Terraform, …) are tracked as files.
+Luau and R. Svelte, Vue and Astro components (script blocks, template
+component tags and event handlers), ArkTS, Liquid (render/include/section)
+and Razor (`@using`, `@inject`, component tags) are extracted too. Other
+recognized files (Pascal, Solidity, Terraform, …) are tracked as files.
+
+Framework routes become `route` nodes linked to their handlers: Express, Koa,
+Fastify, Hono, NestJS, Next.js, SvelteKit, Nuxt, Astro, Expo Router, Remix,
+React/Vue/Angular routers, TanStack Router, Flask, FastAPI, Django, Spring,
+JAX-RS, ASP.NET, Go routers, Axum, Actix, Rocket, Laravel, Symfony, Rails,
+Sinatra, Vapor and Play.
 
 ## Configuration
 
@@ -90,6 +98,7 @@ data directory.
 | `codegraph-store` | SQLite schema, writes, lookups and ranked search |
 | `codegraph-index` | File discovery, parallel extraction, incremental sync |
 | `codegraph-resolve` | Import parsing, module resolution and reference matching |
+| `codegraph-frameworks` | Framework detection and route extraction |
 | `codegraph-graph` | Callers/callees, impact, paths, type hierarchy, dead code |
 | `codegraph-context` | Relevance ranking, `explore` and task context |
 | `codegraph` | Project facade, CLI binary and MCP server |
