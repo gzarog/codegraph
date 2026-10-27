@@ -783,7 +783,7 @@ impl<'t> Walker<'t> {
                 if local.is_empty() {
                     continue;
                 }
-                self.push_ref_at(parent, &local.to_string(), imports_kind, name_node);
+                self.push_ref_at(parent, local, imports_kind, name_node);
             }
             return;
         }

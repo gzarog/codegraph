@@ -1360,12 +1360,7 @@ impl<'t> Walker<'t> {
         ) {
             let text = self.text(recv);
             if capitalized_re().is_match(text) {
-                self.push_ref_at(
-                    owner,
-                    &text.to_string(),
-                    edge_kind_index("references").unwrap(),
-                    recv,
-                );
+                self.push_ref_at(owner, text, edge_kind_index("references").unwrap(), recv);
             }
         }
     }
@@ -1433,24 +1428,14 @@ impl<'t> Walker<'t> {
             "name" => {
                 let name = self.text(node);
                 if !name.is_empty() && !is_php_pseudo_type(name) {
-                    self.push_ref_at(
-                        from_row,
-                        &name.to_string(),
-                        edge_kind_index("references").unwrap(),
-                        node,
-                    );
+                    self.push_ref_at(from_row, name, edge_kind_index("references").unwrap(), node);
                 }
             }
             "qualified_name" => {
                 let text = self.text(node);
                 let last = text.rsplit('\\').next().unwrap_or("");
                 if !last.is_empty() && !is_php_pseudo_type(last) {
-                    self.push_ref_at(
-                        from_row,
-                        &last.to_string(),
-                        edge_kind_index("references").unwrap(),
-                        node,
-                    );
+                    self.push_ref_at(from_row, last, edge_kind_index("references").unwrap(), node);
                 }
             }
             _ => {

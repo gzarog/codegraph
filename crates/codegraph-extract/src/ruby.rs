@@ -907,7 +907,7 @@ impl<'t> Walker<'t> {
 
         let Some(receiver) = node.child_by_field_name("receiver") else {
             // Bare `foo(...)` — just the method name.
-            self.push_ref(caller, &method_name.to_string(), calls_kind, line, col);
+            self.push_ref(caller, method_name, calls_kind, line, col);
             return;
         };
         let receiver_name = self.text(receiver);
@@ -928,7 +928,7 @@ impl<'t> Walker<'t> {
             {
                 self.push_ref(
                     caller,
-                    &class_name.to_string(),
+                    class_name,
                     edge_kind_index("instantiates").unwrap(),
                     line,
                     col,
@@ -955,7 +955,7 @@ impl<'t> Walker<'t> {
         if !skip && is_constant_path(receiver) {
             self.push_ref_at(
                 caller,
-                &receiver_name.to_string(),
+                receiver_name,
                 edge_kind_index("references").unwrap(),
                 receiver,
             );
@@ -1273,10 +1273,10 @@ fn is_constant_path(node: Node) -> bool {
         "constant" => true,
         "scope_resolution" => {
             node.child_by_field_name("name")
-                .map_or(false, |n| n.kind() == "constant")
+                .is_some_and(|n| n.kind() == "constant")
                 && node
                     .child_by_field_name("scope")
-                    .map_or(true, is_constant_path)
+                    .is_none_or(is_constant_path)
         }
         _ => false,
     }
@@ -1289,10 +1289,10 @@ fn is_class_method(node: Node) -> bool {
         "singleton_method" => true,
         "method" => {
             let mut parent = node.parent();
-            if parent.map_or(false, |p| p.kind() == "body_statement") {
+            if parent.is_some_and(|p| p.kind() == "body_statement") {
                 parent = parent.and_then(|p| p.parent());
             }
-            parent.map_or(false, |p| p.kind() == "singleton_class")
+            parent.is_some_and(|p| p.kind() == "singleton_class")
         }
         _ => false,
     }

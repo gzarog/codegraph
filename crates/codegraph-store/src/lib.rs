@@ -163,11 +163,16 @@ fn placeholders(n: usize) -> String {
 /// Chunk size for `IN (...)` lists, under SQLite's bound-parameter limit.
 const IN_CHUNK: usize = 500;
 
+/// A test on a project-relative path.
+pub type PathPredicate = Box<dyn Fn(&str) -> bool + Send + Sync>;
+
 /// The per-project database.
 pub struct Store {
     conn: Connection,
     path: PathBuf,
     project_name_tokens: HashSet<String>,
+    /// Paths `codegraph.json` asks to rank lower.
+    deprioritized: Option<PathPredicate>,
 }
 
 impl Store {
@@ -200,6 +205,7 @@ impl Store {
             conn,
             path,
             project_name_tokens: HashSet::new(),
+            deprioritized: None,
         };
         match store.metadata("schema_version")? {
             Some(v) => {
@@ -227,6 +233,36 @@ impl Store {
     /// Words naming the project itself, ignored by path-relevance scoring.
     pub fn set_project_name_tokens(&mut self, tokens: HashSet<String>) {
         self.project_name_tokens = tokens;
+    }
+
+    /// Paths for which `matcher` returns true are ranked below other code.
+    pub fn set_deprioritized(&mut self, matcher: Option<PathPredicate>) {
+        self.deprioritized = matcher;
+    }
+
+    /// Generated files among `paths` (by the index-time verdict).
+    pub fn generated_among(&self, paths: &[&str]) -> Result<HashSet<String>> {
+        let mut out = HashSet::new();
+        for chunk in paths.chunks(IN_CHUNK) {
+            let mut stmt = self.conn.prepare(&format!(
+                "SELECT path FROM files WHERE generated = 1 AND path IN ({})",
+                placeholders(chunk.len())
+            ))?;
+            for p in stmt.query_map(params_from_iter(chunk), |r| r.get::<_, String>(0))? {
+                out.insert(p?);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Whether `path` should rank below hand-written project code: a
+    /// `deprioritize` match or a generated file.
+    pub fn is_deprioritized(&self, path: &str) -> bool {
+        self.deprioritized.as_ref().is_some_and(|m| m(path))
+            || self
+                .generated_among(&[path])
+                .map(|g| !g.is_empty())
+                .unwrap_or(false)
     }
 
     /// Run `f` in one transaction.
@@ -765,15 +801,24 @@ impl Store {
         }
 
         if !results.is_empty() && !text.is_empty() {
+            let paths: Vec<&str> = results
+                .iter()
+                .map(|r| r.node.file_path.as_str())
+                .collect::<HashSet<_>>()
+                .into_iter()
+                .collect();
+            let generated = self.generated_among(&paths)?;
             for r in &mut results {
+                let low = generated.contains(&r.node.file_path)
+                    || self
+                        .deprioritized
+                        .as_ref()
+                        .is_some_and(|m| m(&r.node.file_path));
+                let name_bonus = name_match_bonus(&r.node.name, text);
                 r.score += kind_bonus(r.node.kind)
-                    + score_path_relevance(
-                        &r.node.file_path,
-                        text,
-                        &self.project_name_tokens,
-                        false,
-                    )
-                    + name_match_bonus(&r.node.name, text);
+                    + score_path_relevance(&r.node.file_path, text, &self.project_name_tokens, low)
+                    // A deprioritized exact name still beats unrelated code, not real code.
+                    + if low { (name_bonus * 0.25).round() } else { name_bonus };
             }
             results.sort_by(|a, b| {
                 b.score

@@ -222,7 +222,7 @@ impl Modules {
             let base = opts
                 .get("baseUrl")
                 .and_then(|b| b.as_str())
-                .and_then(|b| normalize(b));
+                .and_then(normalize);
             if let Some(paths) = opts.get("paths").and_then(|p| p.as_object()) {
                 for (pattern, targets) in paths {
                     let targets = targets
@@ -336,10 +336,10 @@ impl Modules {
         // Monorepo workspace package (`@scope/pkg` or `@scope/pkg/sub`).
         let mut best: Option<(&String, &String)> = None;
         for (name, dir) in &self.js_packages {
-            if spec == name || spec.starts_with(&format!("{name}/")) {
-                if best.is_none_or(|(n, _)| name.len() > n.len()) {
-                    best = Some((name, dir));
-                }
+            if (spec == name || spec.starts_with(&format!("{name}/")))
+                && best.is_none_or(|(n, _)| name.len() > n.len())
+            {
+                best = Some((name, dir));
             }
         }
         if let Some((name, dir)) = best {

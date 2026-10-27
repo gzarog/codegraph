@@ -220,8 +220,8 @@ impl<'a> Matcher<'a> {
             return None;
         }
         match split_member(&name) {
-            Some((head, tail)) if !head.ends_with('(') => {
-                self.resolve_member(from, file, lang, kind, &name, head, tail)
+            Some((head, _)) if !head.ends_with('(') => {
+                self.resolve_member(from, file, lang, kind, &name)
             }
             _ => self.resolve_simple(from, file, lang, kind, &name),
         }
@@ -681,9 +681,8 @@ impl<'a> Matcher<'a> {
         lang: Language,
         kind: ReferenceKind,
         full: &str,
-        head: &str,
-        tail: &str,
     ) -> Option<Match> {
+        let (head, tail) = split_member(full)?;
         let root = head_root(head);
         let single = root.len() == head.len()
             || head.ends_with(')') && !head[..head.len() - 1].contains(['.', ':']);

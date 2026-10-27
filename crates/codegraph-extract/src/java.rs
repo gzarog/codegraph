@@ -1259,12 +1259,7 @@ impl<'t> Walker<'t> {
         ) {
             let text = self.text(recv);
             if capitalized_re().is_match(text) {
-                self.push_ref_at(
-                    owner,
-                    &text.to_string(),
-                    edge_kind_index("references").unwrap(),
-                    recv,
-                );
+                self.push_ref_at(owner, text, edge_kind_index("references").unwrap(), recv);
             }
         }
     }

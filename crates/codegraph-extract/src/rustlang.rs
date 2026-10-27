@@ -42,7 +42,8 @@
 //!   reads a `value` field; rust's field is `type`).
 //! - An `attribute_item` between a doc comment and its item breaks the
 //!   docstring sibling chain (`#[derive(..)]` kills the docstring).
-//! Files with parse errors defer to wasm.
+//!
+//! Files with parse errors are walked anyway (see `note_parse_errors`).
 
 use crate::buffers::{
     build_meta, edge_kind_index, node_kind_index, Arena, BoolFlags, EdgeRow, EmitOut, NodeRow,

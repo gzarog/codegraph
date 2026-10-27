@@ -332,7 +332,7 @@ impl Server {
             let reply = match serde_json::from_str::<Value>(&line) {
                 Ok(Value::Array(batch)) => {
                     let replies: Vec<Value> = batch.iter().filter_map(|m| self.handle(m)).collect();
-                    (!replies.is_empty()).then(|| Value::Array(replies))
+                    (!replies.is_empty()).then_some(Value::Array(replies))
                 }
                 Ok(msg) => self.handle(&msg),
                 Err(e) => Some(

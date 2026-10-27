@@ -183,16 +183,18 @@ fn is_local(store: &Store, node: &Node) -> Result<bool> {
 /// their immediate call neighbours.
 pub fn rank(store: &Store, query: &str, parts: &QueryParts, limit: usize) -> Result<Vec<Scored>> {
     let mut scores: HashMap<String, Scored> = HashMap::new();
-    let bump = |node: Node, score: f64, named: bool, scores: &mut HashMap<String, Scored>| {
+    let mut low_files: HashMap<String, bool> = HashMap::new();
+    let mut bump = |node: Node, score: f64, named: bool, scores: &mut HashMap<String, Scored>| {
         let w = kind_weight(node.kind);
         if w == 0.0 {
             return;
         }
-        let penalty = if !parts.mentions_tests && is_test_file(&node.file_path) {
-            0.3
-        } else {
-            1.0
-        };
+        let test = !parts.mentions_tests && is_test_file(&node.file_path);
+        // Generated code and `deprioritize` paths rank below hand-written code.
+        let low = *low_files
+            .entry(node.file_path.clone())
+            .or_insert_with(|| store.is_deprioritized(&node.file_path));
+        let penalty = if test { 0.3 } else { 1.0 } * if low { 0.4 } else { 1.0 };
         let s = score * w * penalty;
         let e = scores.entry(node.id.clone()).or_insert(Scored {
             node,

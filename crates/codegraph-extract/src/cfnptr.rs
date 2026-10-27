@@ -107,7 +107,7 @@ const C_TYPE_KEYWORDS: [&[u8]; 17] = [
 ];
 
 fn is_type_keyword(w: &[u8]) -> bool {
-    C_TYPE_KEYWORDS.iter().any(|k| *k == w)
+    C_TYPE_KEYWORDS.contains(&w)
 }
 
 const MODIFIERS: [&[u8]; 5] = [b"static", b"const", b"extern", b"register", b"volatile"];
@@ -180,18 +180,15 @@ fn find_bytes(s: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     let mut i = from;
     while i + needle.len() <= s.len() {
         // memchr on the first byte keeps this fast on 20KB+ files.
-        match s[i..s.len() - needle.len() + 1]
-            .iter()
-            .position(|&b| b == needle[0])
         {
-            None => return None,
-            Some(off) => {
-                i += off;
-                if &s[i..i + needle.len()] == needle {
-                    return Some(i);
-                }
-                i += 1;
+            let off = s[i..s.len() - needle.len() + 1]
+                .iter()
+                .position(|&b| b == needle[0])?;
+            i += off;
+            if &s[i..i + needle.len()] == needle {
+                return Some(i);
             }
+            i += 1;
         }
     }
     None
@@ -295,10 +292,9 @@ fn emit_blank(out: &mut Vec<u8>, region: &[u8]) {
             i += 1;
             continue;
         }
-        let len = if b < 0x80 {
+        // ASCII, or a continuation byte at region start (invalid UTF-8): count singly.
+        let len = if b < 0xC0 {
             1
-        } else if b < 0xC0 {
-            1 // continuation byte at region start — invalid UTF-8; count singly
         } else if b < 0xE0 {
             2
         } else if b < 0xF0 {

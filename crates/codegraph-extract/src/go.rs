@@ -585,7 +585,6 @@ impl<'t> Walker<'t> {
             // methodsAreTopLevel: a Go method is a top-level declaration, so
             // extractMethod gives it the function's exportedness (name case).
             is_exported: Some(self.is_exported(node)),
-            ..Extra::default()
         };
         let Some(row) = self.create_node("method", &name, node, extra) else {
             return;
@@ -1847,7 +1846,7 @@ fn go_local_bindings<'t>(
         let declares = |n: Node<'t>| {
             (0..n.child_count()).any(|i| {
                 n.child(i)
-                    .map_or(false, |c| !c.is_named() && c.kind() == ":=")
+                    .is_some_and(|c| !c.is_named() && c.kind() == ":=")
             })
         };
         let mut stack: Vec<Node<'t>> = vec![*unit];

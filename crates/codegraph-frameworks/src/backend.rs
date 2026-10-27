@@ -395,16 +395,19 @@ static GO_ROUTE: LazyLock<Regex> = LazyLock::new(|| {
     )
 });
 
+static GO_GROUP: LazyLock<Regex> = LazyLock::new(|| {
+    re(r#"\b(\w+)\s*:?=\s*(\w+)\s*\.\s*(?:Group|Route|PathPrefix)\s*\(\s*"([^"]*)""#)
+});
+static GO_METHODS: LazyLock<Regex> = LazyLock::new(|| re(r#"^\)\s*\.\s*Methods\s*\(\s*"(\w+)""#));
+
 pub fn go_routes(file: &str, lang: Language, safe: &str, routes: &mut Routes) {
     let lines = Lines::new(safe);
     let b = safe.as_bytes();
     // `v1 := r.Group("/v1")` prefixes.
-    let groups: Vec<(String, String)> =
-        Regex::new(r#"\b(\w+)\s*:?=\s*(\w+)\s*\.\s*(?:Group|Route|PathPrefix)\s*\(\s*"([^"]*)""#)
-            .unwrap()
-            .captures_iter(safe)
-            .map(|c| (c[1].to_string(), c[3].to_string()))
-            .collect();
+    let groups: Vec<(String, String)> = GO_GROUP
+        .captures_iter(safe)
+        .map(|c| (c[1].to_string(), c[3].to_string()))
+        .collect();
     for c in GO_ROUTE.captures_iter(safe) {
         let method = &c[2];
         if matches!(method, "Group" | "Route") {
@@ -425,8 +428,7 @@ pub fn go_routes(file: &str, lang: Language, safe: &str, routes: &mut Routes) {
             "HandleFunc" | "Handle" | "Any" => {
                 // gorilla/mux `.Methods("GET")` after the call.
                 let tail = &safe[close..(close + 80).min(safe.len())];
-                Regex::new(r#"^\)\s*\.\s*Methods\s*\(\s*"(\w+)""#)
-                    .unwrap()
+                GO_METHODS
                     .captures(tail)
                     .map(|x| x[1].to_string())
                     .unwrap_or_else(|| "ANY".into())

@@ -60,10 +60,10 @@ pub fn has_generated_header(content: &str) -> bool {
     }
     let mut open: Option<(&str, &str)> = None;
     for line in head.lines().take(HEADER_SCAN_LINES) {
-        if open.is_some() || COMMENT_LEADER.is_match(line) {
-            if GENERATED_CONTENT.iter().any(|p| p.is_match(line)) {
-                return true;
-            }
+        if (open.is_some() || COMMENT_LEADER.is_match(line))
+            && GENERATED_CONTENT.iter().any(|p| p.is_match(line))
+        {
+            return true;
         }
         if let Some((_, close)) = open {
             if line.contains(close) {

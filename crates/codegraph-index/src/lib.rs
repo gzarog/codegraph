@@ -307,7 +307,7 @@ pub fn index_project(
             .map(|s| {
                 let out = build(config, &frameworks, s);
                 let n = done.fetch_add(1, Ordering::Relaxed) + 1;
-                if n % 50 == 0 || n == total {
+                if n.is_multiple_of(50) || n == total {
                     progress(Progress::Extracting { done: n, total });
                 }
                 out

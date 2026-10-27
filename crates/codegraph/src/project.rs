@@ -185,6 +185,15 @@ impl CodeGraph {
     /// Re-read `codegraph.json`.
     pub fn reload_config(&mut self) {
         self.config = ProjectConfig::load(&self.root);
+        self.apply_config();
+    }
+
+    fn apply_config(&mut self) {
+        let matcher = (!self.config.deprioritize.is_empty()).then(|| {
+            let set = codegraph_index::config::pattern_set(&self.config.deprioritize);
+            Box::new(move |p: &str| set.is_match(p)) as Box<dyn Fn(&str) -> bool + Send + Sync>
+        });
+        self.store.set_deprioritized(matcher);
     }
 
     /// Full index: re-extract every file.

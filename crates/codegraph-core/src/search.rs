@@ -900,7 +900,7 @@ pub fn segment_lookup_variants(word: &str) -> Vec<String> {
     let mut v = vec![word.to_string()];
     let n = word.len();
     let strip2 = n >= MIN_PROSE_CHARS + 2;
-    let strip1 = n >= MIN_PROSE_CHARS + 1;
+    let strip1 = n > MIN_PROSE_CHARS;
     if ["xes", "shes", "sses", "zzes"]
         .iter()
         .any(|s| word.ends_with(s))

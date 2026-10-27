@@ -2402,7 +2402,7 @@ impl<'t> Walker<'t> {
 /// (tree-sitter.ts).
 fn class_expression_head(src: &str, node: Node<'_>, body: Node<'_>) -> String {
     src[node.start_byte()..body.start_byte()]
-        .trim_end_matches(|c: char| matches!(c, ' ' | '\t' | '\r' | '\n'))
+        .trim_end_matches([' ', '\t', '\r', '\n'])
         .to_string()
 }
 

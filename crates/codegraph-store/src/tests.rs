@@ -168,3 +168,37 @@ fn segments() {
         vec!["parseConfig".to_string()]
     );
 }
+
+#[test]
+fn deprioritized_and_generated_rank_lower() {
+    let mut s = Store::open_in_memory().unwrap();
+    let mut gen = file("gen/api.pb.ts");
+    gen.generated = true;
+    let mk = |id: &str, path: &str| ExtractionResult {
+        nodes: vec![node(id, NodeKind::Function, "handleRequest", path, 1)],
+        ..Default::default()
+    };
+    s.store_files(&[
+        (gen, mk("fn:gen", "gen/api.pb.ts")),
+        (file("legacy/h.ts"), mk("fn:legacy", "legacy/h.ts")),
+        (file("src/h.ts"), mk("fn:src", "src/h.ts")),
+    ])
+    .unwrap();
+    s.set_deprioritized(Some(Box::new(|p: &str| p.starts_with("legacy/"))));
+    let hits = s
+        .search_nodes("handleRequest", &SearchOptions::default())
+        .unwrap();
+    assert_eq!(
+        hits[0].node.id,
+        "fn:src",
+        "{:?}",
+        hits.iter()
+            .map(|h| (&h.node.id, h.score))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        s.is_deprioritized("legacy/x.ts")
+            && s.is_deprioritized("gen/api.pb.ts")
+            && !s.is_deprioritized("src/h.ts")
+    );
+}

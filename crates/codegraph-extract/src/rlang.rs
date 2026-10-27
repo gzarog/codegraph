@@ -569,14 +569,16 @@ impl<'t> Walker<'t> {
             let arg_name_text = self.text(arg_name);
             // R6 `inherit = Parent` / S4 `contains = "Parent"` — a falsy
             // resolution (`inherit = pkg::Parent`, empty string) emits nothing.
-            if (arg_name_text == "inherit" || arg_name_text == "contains") && value.is_some() {
-                if let Some(parent) = self.literal_or_identifier(value) {
-                    if !parent.is_empty() {
-                        let parent = parent.to_string();
-                        self.push_ref_at(class_row, &parent, "extends", value.unwrap());
+            if arg_name_text == "inherit" || arg_name_text == "contains" {
+                if let Some(v) = value {
+                    if let Some(parent) = self.literal_or_identifier(value) {
+                        if !parent.is_empty() {
+                            let parent = parent.to_string();
+                            self.push_ref_at(class_row, &parent, "extends", v);
+                        }
                     }
+                    continue;
                 }
-                continue;
             }
             // Direct named function argument (ggproto methods).
             if let Some(v) = value {
