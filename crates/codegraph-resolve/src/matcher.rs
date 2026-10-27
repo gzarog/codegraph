@@ -169,6 +169,9 @@ pub struct Matcher<'a> {
     root: &'a Path,
     bindings: HashMap<String, Rc<Vec<Binding>>>,
     defaults: HashMap<String, Option<SymId>>,
+    lines: HashMap<String, Rc<Vec<String>>>,
+    /// Variable → declared type name, per scope symbol.
+    scope_types: HashMap<SymId, Rc<HashMap<String, String>>>,
 }
 
 impl<'a> Matcher<'a> {
@@ -179,7 +182,104 @@ impl<'a> Matcher<'a> {
             root,
             bindings: HashMap::new(),
             defaults: HashMap::new(),
+            lines: HashMap::new(),
+            scope_types: HashMap::new(),
         }
+    }
+
+    fn file_lines(&mut self, file: &str) -> Rc<Vec<String>> {
+        if let Some(l) = self.lines.get(file) {
+            return l.clone();
+        }
+        let text = std::fs::read_to_string(self.root.join(file)).unwrap_or_default();
+        let rc = Rc::new(text.lines().map(str::to_string).collect::<Vec<_>>());
+        // Bounded: a resolution pass touches each file's references together.
+        if self.lines.len() > 256 {
+            self.lines.clear();
+        }
+        self.lines.insert(file.to_string(), rc.clone());
+        rc
+    }
+
+    /// Declared types of the variables, parameters and fields visible in `scope`'s body.
+    fn scope_types(&mut self, scope: SymId) -> Rc<HashMap<String, String>> {
+        if let Some(t) = self.scope_types.get(&scope) {
+            return t.clone();
+        }
+        let s = self.syms.get(scope);
+        let (file, start, end) = (s.file.clone(), s.start_line as usize, s.end_line as usize);
+        let lines = self.file_lines(&file);
+        let lo = start.saturating_sub(1).min(lines.len());
+        let hi = end.min(lines.len()).max(lo);
+        let text = lines[lo..hi].join("\n");
+        let rc = Rc::new(declared_types(&text));
+        self.scope_types.insert(scope, rc.clone());
+        rc
+    }
+
+    /// The type symbol a receiver expression (`repo`, `this.repo`, `$repo`) holds.
+    fn infer_receiver_type(
+        &mut self,
+        from: SymId,
+        file: &str,
+        lang: Language,
+        head: &str,
+    ) -> Option<SymId> {
+        let head = head.trim_start_matches('$');
+        let (var, in_class) = match head.split_once(['.', ':', '-']) {
+            Some((recv, field)) if SELF_WORDS.contains(&recv) || recv == "this" => {
+                (field.trim_start_matches(['>', ':']).to_string(), true)
+            }
+            Some(_) => return None,
+            None => (head.to_string(), false),
+        };
+        if var.is_empty() || !var.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return None;
+        }
+        let mut ty = None;
+        if !in_class {
+            // Innermost scope first: the function, then any enclosing functions.
+            let mut scope = Some(from);
+            for _ in 0..4 {
+                let Some(sc) = scope else { break };
+                if let Some(t) = self.scope_types(sc).get(&var) {
+                    ty = Some(t.clone());
+                    break;
+                }
+                scope = self.syms.owner_type(sc).or_else(|| {
+                    let o = self.syms.get(sc).owner()?.to_string();
+                    let name = o.rsplit("::").next()?.to_string();
+                    self.syms
+                        .named(&name)
+                        .iter()
+                        .copied()
+                        .find(|&i| self.syms.get(i).qualified_name == o)
+                });
+            }
+        }
+        if ty.is_none() {
+            // A field of the enclosing type.
+            let class = self.enclosing_type(from)?;
+            ty = self.scope_types(class).get(&var).cloned();
+        }
+        let ty = ty?;
+        let name = ty.rsplit(['.', ':']).next().unwrap_or(&ty);
+        let mut types: Vec<SymId> = self
+            .syms
+            .named_for(name, lang)
+            .iter()
+            .copied()
+            .filter(|&i| {
+                let s = self.syms.get(i);
+                same_family(s.language, lang)
+                    && (s.kind.is_type() || matches!(s.kind, NodeKind::Module))
+            })
+            .collect();
+        types.sort_by_key(|&i| {
+            let s = self.syms.get(i);
+            std::cmp::Reverse((s.file == file, common_prefix_len(&s.file, file)))
+        });
+        types.first().copied()
     }
 
     /// Import bindings declared in `file`.
@@ -754,6 +854,13 @@ impl<'a> Matcher<'a> {
             }
         }
 
+        // A variable, parameter or field whose declared type we can read.
+        if let Some(ty) = self.infer_receiver_type(from, file, lang, head) {
+            if let Some(m) = self.syms.member_named(ty, tail, lang) {
+                return Some(Match::new(m, "receiver-type", 0.85));
+            }
+        }
+
         // `Type.member` / `Type::member` / `Type().member`
         let type_name = head
             .rsplit(['.', ':'])
@@ -855,6 +962,60 @@ impl<'a> Matcher<'a> {
     }
 }
 
+/// `(name, type)` declaration shapes across languages. Each pattern's
+/// `name`/`ty` groups pick out a variable and the type it holds.
+static DECLARATIONS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    [
+        // Go: x := NewFoo(…) / x := pkg.NewFoo(…) — before the generic call form.
+        r"\b(?P<name>[a-z_]\w*)\s*:=\s*(?:\w+\.)?New(?P<ty>[A-Z]\w*)\s*\(",
+        // const x = new Foo(…) / let x = Foo::new(…) / x = Foo(…) / $x = new Foo / var x = Foo{…}
+        r"(?:\b(?:const|let|var|val|auto|my)\s+(?:mut\s+)?)?\$?(?P<name>[a-z_]\w*)\s*:?=\s*(?:new\s+|await\s+|&)?(?P<ty>[A-Z][\w]*)(?:<[^>()]*>)?(?:::\w+)?\s*[({]",
+        // x: Foo / x: &mut Foo / x: Foo? (TS, Rust, Kotlin, Swift, Python, Scala, Dart params and fields)
+        r"\b(?P<name>[a-z_]\w*)\s*[?!]?:\s*(?:&\s*(?:mut\s+)?|\*)?(?P<ty>[A-Z][\w.]*)",
+        // Foo x = … / Foo x; / Foo x, / Foo x) (Java, C#, C++, Dart)
+        r"\b(?P<ty>[A-Z][\w.]*)(?:<[^>;()]*>)?(?:\s*\*|\s*&)?\s+(?P<name>[a-z_]\w*)\s*[=;,)]",
+        // Go: var x Foo / x *Foo (params) / x pkg.Foo
+        r"\b(?:var\s+)?(?P<name>[a-z_]\w*)\s+\*?(?:\w+\.)?(?P<ty>[A-Z]\w*)\s*[,)=\n{]",
+        // PHP typed params: Foo $x
+        r"\b(?P<ty>[A-Z]\w*)\s+\$(?P<name>\w+)",
+    ]
+    .iter()
+    .map(|p| Regex::new(p).unwrap())
+    .collect()
+});
+
+const NOT_TYPES: &[&str] = &[
+    "String", "Number", "Boolean", "Object", "Array", "Promise", "Map", "Set", "Date", "Error",
+    "Record", "Partial", "Readonly", "Option", "Result", "Vec", "Box", "Rc", "Arc", "Some", "None",
+    "Ok", "Err", "List", "Dict", "Any", "Optional", "Int", "Long", "Double", "Float", "Bool",
+    "Self", "True", "False", "Null", "Void",
+];
+
+/// Variable → declared type for every declaration found in `text`. The first
+/// declaration of a name wins.
+fn declared_types(text: &str) -> HashMap<String, String> {
+    let mut out: HashMap<String, String> = HashMap::new();
+    for re in DECLARATIONS.iter() {
+        for c in re.captures_iter(text) {
+            let (Some(name), Some(ty)) = (c.name("name"), c.name("ty")) else {
+                continue;
+            };
+            let ty = ty.as_str().rsplit('.').next().unwrap_or(ty.as_str());
+            if NOT_TYPES.contains(&ty)
+                || matches!(
+                    name.as_str(),
+                    "return" | "new" | "else" | "case" | "throw" | "in" | "is" | "as"
+                )
+            {
+                continue;
+            }
+            out.entry(name.as_str().to_string())
+                .or_insert_with(|| ty.to_string());
+        }
+    }
+    out
+}
+
 /// `com.y` + `Util` → `com.y.Util`; Rust `crate::util` + `helper` → `crate::util::helper`.
 fn qualified_binding_name(b: &Binding) -> String {
     match &b.imported {
@@ -898,5 +1059,35 @@ mod tests {
         assert_eq!(head_root("Thing()"), "Thing");
         assert_eq!(clean("new Foo()"), "Foo");
         assert_eq!(norm_ns("App\\Models"), "app::models");
+    }
+}
+
+#[cfg(test)]
+mod inference_tests {
+    use super::declared_types;
+
+    #[test]
+    fn reads_declarations_across_languages() {
+        let t = declared_types("const repo = new UserRepo(db);\nlet svc: AuthService = make();\nfunction f(store: Store<Item>, n: number) {}");
+        assert_eq!(t.get("repo").map(String::as_str), Some("UserRepo"));
+        assert_eq!(t.get("svc").map(String::as_str), Some("AuthService"));
+        assert_eq!(t.get("store").map(String::as_str), Some("Store"));
+        assert!(!t.contains_key("n"));
+        let j = declared_types("OrderService orders = ctx.get();\nList<User> users = q();");
+        assert_eq!(j.get("orders").map(String::as_str), Some("OrderService"));
+        assert!(!j.contains_key("users"));
+        let g = declared_types("func (h *Handler) Serve(w http.ResponseWriter, s *Store) {\n  c := NewClient(cfg)\n  b := &Buffer{}\n}");
+        assert_eq!(g.get("c").map(String::as_str), Some("Client"));
+        assert_eq!(g.get("b").map(String::as_str), Some("Buffer"));
+        assert_eq!(g.get("s").map(String::as_str), Some("Store"));
+        let r = declared_types("let mut cache = LruCache::new(10);\nfn f(db: &mut Database) {}");
+        assert_eq!(r.get("cache").map(String::as_str), Some("LruCache"));
+        assert_eq!(r.get("db").map(String::as_str), Some("Database"));
+        let p = declared_types(
+            "$mailer = new Mailer($cfg);\nfunction f(Logger $log) {}\nclient = HttpClient(base)",
+        );
+        assert_eq!(p.get("mailer").map(String::as_str), Some("Mailer"));
+        assert_eq!(p.get("log").map(String::as_str), Some("Logger"));
+        assert_eq!(p.get("client").map(String::as_str), Some("HttpClient"));
     }
 }
