@@ -495,12 +495,16 @@ fn dispatch_section(store: &Store, named: &[&Scored], ranked: &[Scored]) -> Resu
     } else {
         named.iter().take(6).map(|s| &s.node).collect()
     };
-    let kinds = [codegraph_core::EdgeKind::Calls];
+    let kinds = [
+        codegraph_core::EdgeKind::Calls,
+        codegraph_core::EdgeKind::Navigates,
+    ];
     let mut out = String::new();
     let describe = |via: &str, key: &str| -> String {
         let key = key.split_once(':').map(|(_, k)| k).unwrap_or(key);
         match via {
             "http" => format!("requests `{key}`"),
+            "nav" => format!("navigates to `{key}`"),
             "fnptr" => format!("calls function-pointer slot `{key}`"),
             _ => format!("emits `{key}`"),
         }

@@ -113,6 +113,8 @@ pub fn view(app: &App) -> N {
             el("nav")
                 .attr("aria-label", "Views")
                 .child(nav("Overview", "#/", *r == Route::Home))
+                .child(nav("Entry points", "#/entry", *r == Route::Entry))
+                .child(nav("Screens", "#/screens", *r == Route::Screens))
                 .child(nav("Map", "#/map", *r == Route::Map))
                 .child(nav("Routes", "#/routes", *r == Route::Routes))
                 .child(nav("Flow", "#/flow", matches!(r, Route::Flow(..))))
@@ -159,6 +161,9 @@ pub fn view(app: &App) -> N {
         Page::Dead(v) => dead(v),
         Page::Routes(v) => routes(v),
         Page::Trails(v) => trails(v),
+        Page::Entry(v) => crate::flowviews::entry(v),
+        Page::Screens(m) => crate::flowviews::screens(m),
+        Page::Steps(m) => crate::flowviews::steps(m),
     };
     shell = shell.child(el("main").attr("id", "main").child(page));
     if let Some(p) = palette(app) {
@@ -391,11 +396,11 @@ fn home(app: &App) -> N {
         .map(|h| {
             el("li")
                 .child(sym_link(h))
-                .child(
-                    el("span")
-                        .class("muted")
-                        .text(format!("{} users", fmt_num(u(h, "fanIn")))),
-                )
+                .child(el("span").class("muted").text(if u(h, "fanIn") == 1 {
+                    "1 user".to_string()
+                } else {
+                    format!("{} users", fmt_num(u(h, "fanIn")))
+                }))
                 .child(loc_link(s(h, "file"), u(h, "line")))
                 .into()
         })
@@ -782,6 +787,12 @@ fn symbol(app: &App, v: &Value) -> N {
                         )
                         .child(
                             el("a")
+                                .class("btn")
+                                .href(format!("#/steps?id={}", crate::app::encode(s(n, "id"))))
+                                .text("Steps from here"),
+                        )
+                        .child(
+                            el("a")
                                 .class("btn quiet")
                                 .href(file_href(s(n, "file"), Some(u(n, "startLine"))))
                                 .text("Open in file"),
@@ -898,7 +909,12 @@ fn file(app: &App, v: &Value) -> N {
                     el("p").class("warn").text("This file changed since it was indexed; the outline may be out of date.").into()
                 }))
                 .opt((!errors.is_empty()).then(|| el("ul").class("warn").children(errors).into()))
-                .child(el("pre").class("code").attr("aria-label", "Source").html(block_html(&lines, 1, s(f, "language"), &mark)))
+                .child(
+                    el("div")
+                        .class("codearcs")
+                        .child(crate::flowviews::arcs(&v["calls"], path, lines.len()))
+                        .child(el("pre").class("code arced").attr("aria-label", "Source").html(block_html(&lines, 1, s(f, "language"), &mark))),
+                )
                 .opt((v["truncated"].as_bool() == Some(true)).then(|| empty("The file is longer than the viewer shows."))),
         )
         .child(
@@ -1016,6 +1032,7 @@ fn map(m: &crate::app::MapState) -> N {
         )
         .attr("width", format!("{:.0}", m.layout.width))
         .attr("class", "mapsvg")
+        .attr("id", "map-svg")
         .attr("role", "img")
         .attr("aria-label", "Module dependency map")
         .child(
@@ -1084,13 +1101,26 @@ fn map(m: &crate::app::MapState) -> N {
             .into(),
     };
     el("div")
-        .class("map")
-        .child(el("div").class("mapcanvas").child(if modules.is_empty() {
-            empty("Nothing indexed yet.")
-        } else {
-            graph.into()
-        }))
-        .child(side)
+        .class("graphpage")
+        .child(
+            el("div")
+                .class("pagehead")
+                .child(el("h1").text("Module map"))
+                .opt(
+                    (!modules.is_empty())
+                        .then(|| crate::flowviews::export_buttons("map-svg", "codegraph-map")),
+                ),
+        )
+        .child(
+            el("div")
+                .class("map")
+                .child(el("div").class("mapcanvas").child(if modules.is_empty() {
+                    empty("Nothing indexed yet.")
+                } else {
+                    graph.into()
+                }))
+                .child(side),
+        )
         .into()
 }
 

@@ -327,6 +327,7 @@ pub fn file(cg: &CodeGraph, path: &str) -> ApiResult {
         "outline": outline,
         "source": lines.into_iter().take(MAX_FILE_LINES).collect::<Vec<_>>(),
         "truncated": total_lines > MAX_FILE_LINES,
+        "calls": super::flows::file_calls(cg, path)?,
         "imports": store.dependency_files(path).map_err(internal)?,
         "dependents": store.dependent_files(path).map_err(internal)?,
     }))

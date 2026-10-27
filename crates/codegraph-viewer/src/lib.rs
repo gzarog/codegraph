@@ -5,6 +5,7 @@
 //! is Rust.
 
 pub mod app;
+pub mod flowviews;
 pub mod highlight;
 pub mod host;
 pub mod layout;
@@ -120,4 +121,13 @@ pub unsafe extern "C" fn cg_fetched(id: u32, status: u32, ptr: *mut u8, len: usi
 #[no_mangle]
 pub extern "C" fn cg_timer(id: u32) {
     dispatch(Msg::Timer(id));
+}
+
+/// A message from the page for the user (export results).
+///
+/// # Safety
+/// See `take_string`.
+#[no_mangle]
+pub unsafe extern "C" fn cg_notice(ptr: *mut u8, len: usize) {
+    dispatch(Msg::Notice(take_string(ptr, len)));
 }

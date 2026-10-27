@@ -4,7 +4,9 @@
 
 use crate::symbols::{SymId, Symbols};
 use codegraph_core::{Edge, NodeKind, Provenance, UnresolvedReference};
-use codegraph_frameworks::dispatch::{route_matches, BIND_PREFIX, FIRE_PREFIX, HTTP_PREFIX};
+use codegraph_frameworks::dispatch::{
+    route_matches, BIND_PREFIX, FIRE_PREFIX, HTTP_PREFIX, NAV_PREFIX,
+};
 use std::collections::HashMap;
 
 /// Most targets one dispatch site links to; beyond that the key is too
@@ -12,7 +14,7 @@ use std::collections::HashMap;
 const MAX_TARGETS: usize = 12;
 
 pub fn is_join(name: &str) -> bool {
-    name.starts_with(FIRE_PREFIX) || name.starts_with(HTTP_PREFIX)
+    name.starts_with(FIRE_PREFIX) || name.starts_with(HTTP_PREFIX) || name.starts_with(NAV_PREFIX)
 }
 
 /// The handler a `bind:` reference registers.
@@ -160,47 +162,54 @@ pub fn targets(
         }
     } else if let Some(req) = r.reference_name.strip_prefix(HTTP_PREFIX) {
         let (method, path) = req.split_once(' ').unwrap_or(("GET", req));
-        let served: Vec<&Route> = routes
-            .0
-            .iter()
-            .filter(|rt| route_matches(&rt.path, path))
-            .collect();
-        // Prefer routes declaring the requested method; method-less (file)
-        // routes serve any.
-        let exact: Vec<SymId> = served
-            .iter()
-            .filter(|rt| accepts(&rt.methods, method))
-            .map(|rt| rt.id)
-            .collect();
-        out = if exact.is_empty() {
-            served
+        out = route_targets(routes, path, method, false);
+    } else if let Some(path) = r.reference_name.strip_prefix(NAV_PREFIX) {
+        out = route_targets(routes, path, "GET", true);
+    }
+    out.truncate(MAX_TARGETS);
+    out
+}
+
+/// Routes serving `path`: those declaring `method` (or method-less page
+/// routes when none do, or first when `pages_first`), most specific first.
+fn route_targets(routes: &Routes, path: &str, method: &str, pages_first: bool) -> Vec<SymId> {
+    let served: Vec<&Route> = routes
+        .0
+        .iter()
+        .filter(|rt| route_matches(&rt.path, path))
+        .collect();
+    let pages: Vec<SymId> = served
+        .iter()
+        .filter(|rt| rt.methods.is_empty())
+        .map(|rt| rt.id)
+        .collect();
+    let exact: Vec<SymId> = served
+        .iter()
+        .filter(|rt| accepts(&rt.methods, method))
+        .map(|rt| rt.id)
+        .collect();
+    let mut out = match (pages_first, pages.is_empty(), exact.is_empty()) {
+        (true, false, _) | (false, false, true) => pages,
+        _ => exact,
+    };
+    // A literal segment beats a parameter: keep the most specific routes.
+    if out.len() > 1 {
+        let literal = |id: &SymId| {
+            routes
+                .0
                 .iter()
-                .filter(|rt| rt.methods.is_empty())
-                .map(|rt| rt.id)
-                .collect()
-        } else {
-            exact
-        };
-        // A literal segment beats a parameter: keep the most specific routes.
-        if out.len() > 1 {
-            let literal = |id: &SymId| {
-                let rt = routes
-                    .0
-                    .iter()
-                    .find(|rt| rt.id == *id)
-                    .map(|rt| rt.path.as_str());
-                rt.map(|p| {
-                    p.split('/')
+                .find(|rt| rt.id == *id)
+                .map(|rt| {
+                    rt.path
+                        .split('/')
                         .filter(|s| !s.is_empty() && !is_param(s))
                         .count()
                 })
                 .unwrap_or(0)
-            };
-            let best = out.iter().map(literal).max().unwrap_or(0);
-            out.retain(|id| literal(id) == best);
-        }
+        };
+        let best = out.iter().map(literal).max().unwrap_or(0);
+        out.retain(|id| literal(id) == best);
     }
-    out.truncate(MAX_TARGETS);
     out
 }
 
@@ -214,9 +223,13 @@ pub fn edge(r: &UnresolvedReference, syms: &Symbols, target: SymId) -> (Edge, St
     let mut edge = Edge::new(&r.from_node_id, &t.id, r.reference_kind.edge_kind());
     edge.line = Some(r.line);
     edge.column = Some(r.column);
-    let (via, key) = match r.reference_name.strip_prefix(HTTP_PREFIX) {
-        Some(req) => ("http", req),
-        None => {
+    let (via, key) = match (
+        r.reference_name.strip_prefix(HTTP_PREFIX),
+        r.reference_name.strip_prefix(NAV_PREFIX),
+    ) {
+        (Some(req), _) => ("http", req),
+        (_, Some(path)) => ("nav", path),
+        _ => {
             let key = &r.reference_name[FIRE_PREFIX.len()..];
             (key.split(':').next().unwrap_or("event"), key)
         }

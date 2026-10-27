@@ -218,3 +218,31 @@ td a.sym { margin-right: 10px; }
   .tiles { grid-template-columns: repeat(2, 1fr); }
   .cols { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* diagram pages */
+.graphpage .pagehead { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.graphpage .pagehead h1 { font-size: 22px; margin: 4px 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.exports { display: flex; gap: 6px; }
+.mapsvg .elabel { font: 10.5px var(--mono); fill: var(--warn-fg); text-anchor: middle; paint-order: stroke; stroke: var(--panel); stroke-width: 4px; stroke-linejoin: round; }
+.mapsvg .edge.nav { stroke: var(--g-route); }
+.mapsvg .mod.screen text.lbl { fill: var(--g-route); }
+.mapsvg .mod.step-anchor rect { stroke: var(--accent); stroke-width: 2; }
+.mapsvg .mod.step-screen rect, .mapsvg .mod.step-request rect { fill: color-mix(in srgb, var(--g-route) 10%, var(--panel)); }
+.mapsvg .mod.step-trigger rect, .mapsvg .mod.step-event rect { fill: color-mix(in srgb, var(--g-fn) 10%, var(--panel)); }
+.mapsvg .mod.step-effect rect { fill: var(--warn-bg); stroke-dasharray: 4 3; }
+.mapsvg .mod.step-store rect { fill: color-mix(in srgb, var(--g-type) 12%, var(--panel)); }
+.mapsvg .mod.step-bridge rect { fill: color-mix(in srgb, var(--g-mod) 12%, var(--panel)); }
+.mapsvg .mod.on rect { stroke: var(--accent); stroke-width: 2; }
+ul.list li.trans { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 3px; }
+a.go { color: var(--muted); padding: 0 4px; }
+ul.list li > a.go { margin-left: auto; }
+
+/* call arcs beside source */
+.codearcs { display: flex; align-items: flex-start; margin: 0 0 14px; }
+.codearcs .arcs { flex-shrink: 0; overflow: visible; }
+.codearcs pre.code { flex: 1; min-width: 0; margin: 0; }
+pre.code.arced .ln { height: 20px; line-height: 20px; }
+.arcs .arc { fill: none; stroke: var(--accent); stroke-width: 1.2; opacity: .45; }
+.arcs a:hover .arc { opacity: 1; stroke-width: 2; }
+.arcs .port { fill: var(--muted); opacity: .6; }
+@media (max-width: 640px) { .codearcs .arcs { display: none; } }

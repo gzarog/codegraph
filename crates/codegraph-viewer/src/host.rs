@@ -21,6 +21,7 @@ mod imp {
         fn storage_set(key: *const u8, key_len: usize, value: *const u8, value_len: usize);
         fn timer(id: u32, ms: u32);
         fn log(ptr: *const u8, len: usize);
+        fn export_image(ptr: *const u8, len: usize);
     }
 
     pub fn apply_ops(ops: &str) {
@@ -53,6 +54,9 @@ mod imp {
     }
     pub fn console(msg: &str) {
         unsafe { log(msg.as_ptr(), msg.len()) }
+    }
+    pub fn export(request: &str) {
+        unsafe { export_image(request.as_ptr(), request.len()) }
     }
 }
 
@@ -89,6 +93,9 @@ mod imp {
     }
     pub fn console(msg: &str) {
         record("log", msg.to_string())
+    }
+    pub fn export(request: &str) {
+        record("export", request.to_string())
     }
 
     /// Take the recorded calls.

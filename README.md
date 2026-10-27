@@ -76,7 +76,7 @@ turns that off).
 | `watch [path]` | Keep the index in sync until interrupted |
 | `serve --mcp [--no-daemon]` | MCP server on stdio, through the project's shared daemon |
 | `daemon [list\|stop] [--all]` | List or stop the shared background daemons |
-| `ui [--port N] [--no-open]` | Browser viewer on 127.0.0.1: symbol pages with callers/callees and blast radius, file outlines, a module map, call-path flows, routes, dead code and saved trails |
+| `ui [--port N] [--no-open]` | Browser viewer on 127.0.0.1: symbol pages with callers/callees and blast radius, files with call arcs, entry points, a screen graph with the conditions on each transition, steps from any symbol, a module map, call-path flows, routes, dead code and saved trails; diagrams export as SVG or PNG |
 | `install` / `uninstall` | Register CodeGraph with coding agents, or remove it |
 | `upgrade [--check] [--version vX.Y.Z]` | Install the latest release (or `cargo install` for source installs) |
 | `telemetry [on\|off\|status]` | Anonymous usage statistics; nothing is sent unless an endpoint is configured ([TELEMETRY.md](TELEMETRY.md)) |
@@ -112,7 +112,9 @@ Dispatch the call graph can't see is joined heuristically: an event emit
 with `on`/`addEventListener`/`subscribe`; a C function-pointer call
 (`f->ops->read(f)`) calls the functions assigned to that slot (`.read =
 disk_read`); and a `fetch`/`axios`/`requests` call to a literal path calls the
-project route that serves it.
+project route that serves it; and a navigation (`router.push('/x')`,
+`<Link href>`, `redirect('/x')`) links to the page route. JSX elements
+(`<ItemCard/>`) count as calls to the component they render.
 
 ## Configuration
 

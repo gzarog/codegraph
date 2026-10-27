@@ -466,8 +466,8 @@ impl Store {
         })
     }
 
-    /// Drop the edges dynamic-dispatch joins produced and reopen the `fire:`
-    /// and `http:` references behind them, so the next resolution re-joins
+    /// Drop the edges dynamic-dispatch joins produced and reopen the `fire:`,
+    /// `http:` and `nav:` references behind them, so the next resolution re-joins
     /// them against the current binds and routes.
     pub fn reopen_dispatch_refs(&mut self) -> Result<usize> {
         self.transaction(|tx| {
@@ -479,7 +479,8 @@ impl Store {
             Ok(tx.execute(
                 "UPDATE refs SET status = 'pending', target_id = NULL, target_file = NULL
                   WHERE status != 'pending'
-                    AND (reference_name LIKE 'fire:%' OR reference_name LIKE 'http:%')",
+                    AND (reference_name LIKE 'fire:%' OR reference_name LIKE 'http:%'
+                         OR reference_name LIKE 'nav:%')",
                 [],
             )?)
         })
@@ -734,6 +735,38 @@ impl Store {
         let rows = stmt.query_map([], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? as u64))
         })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Files whose top-level code calls something: `(file, calls, distinct
+    /// files reached)`, busiest first.
+    pub fn file_call_roots(&self, limit: usize) -> Result<Vec<(String, u64, u64)>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT s.file_path, count(*), count(DISTINCT t.file_path) FROM edges e
+               JOIN nodes s ON s.id = e.source
+               JOIN nodes t ON t.id = e.target
+              WHERE s.kind = 'file' AND e.kind = 'calls'
+              GROUP BY s.file_path
+              ORDER BY count(*) * count(DISTINCT t.file_path) DESC LIMIT ?",
+        )?;
+        let rows = stmt.query_map([limit as i64], |r| {
+            Ok((
+                r.get(0)?,
+                r.get::<_, i64>(1)? as u64,
+                r.get::<_, i64>(2)? as u64,
+            ))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// References from `node_id` that resolved to nothing in the project
+    /// (library and platform calls): `(name, line)`.
+    pub fn failed_refs_from(&self, node_id: &str) -> Result<Vec<(String, u32)>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT reference_name, line FROM refs
+              WHERE from_node_id = ? AND status = 'failed' ORDER BY line",
+        )?;
+        let rows = stmt.query_map([node_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 

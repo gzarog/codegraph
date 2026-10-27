@@ -237,8 +237,9 @@ fn build(
     (record, result)
 }
 
-/// Record event binds/fires, function-pointer slots and HTTP requests as
-/// references from the innermost symbol around each site.
+/// Record event binds/fires, function-pointer slots, HTTP requests,
+/// navigations and JSX renders as references from the innermost symbol
+/// around each site.
 fn add_dispatch_sites(
     path: &str,
     language: Language,
@@ -253,6 +254,8 @@ fn add_dispatch_sites(
                 | Language::Vue
                 | Language::Astro
                 | Language::Python
+                | Language::Ruby
+                | Language::Php
                 | Language::C
                 | Language::Cpp
                 | Language::ObjC
@@ -261,7 +264,19 @@ fn add_dispatch_sites(
         return;
     }
     let safe = codegraph_frameworks::strip::strip_comments(content, language);
-    let sites = dispatch::sites(language, &safe);
+    let mut sites = dispatch::sites(language, &safe);
+    if codegraph_frameworks::jsx::applies(language) {
+        sites.extend(
+            codegraph_frameworks::jsx::renders(&safe)
+                .into_iter()
+                .map(|(line, name)| dispatch::Site {
+                    line,
+                    name,
+                    kind: codegraph_core::ReferenceKind::Calls,
+                    handler: None,
+                }),
+        );
+    }
     if sites.is_empty() {
         return;
     }

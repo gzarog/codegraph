@@ -5,7 +5,8 @@
 //! resolution joins them:
 //! - `bind:<channel>:<key>` (candidate = the handler) registers a handler,
 //! - `fire:<channel>:<key>` invokes whatever is bound to that key,
-//! - `http:<METHOD> <path>` requests a route.
+//! - `http:<METHOD> <path>` requests a route,
+//! - `nav:<path>` navigates to a page (`router.push`, `<Link href>`, `redirect`).
 
 use crate::util::Lines;
 use codegraph_core::{Language, ReferenceKind};
@@ -15,6 +16,7 @@ use std::sync::LazyLock;
 pub const BIND_PREFIX: &str = "bind:";
 pub const FIRE_PREFIX: &str = "fire:";
 pub const HTTP_PREFIX: &str = "http:";
+pub const NAV_PREFIX: &str = "nav:";
 
 /// One dispatch site, at a 1-based line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,6 +58,21 @@ static JS_HTTP: LazyLock<Regex> = LazyLock::new(|| {
     )
 });
 static FETCH_METHOD: LazyLock<Regex> = LazyLock::new(|| re(r#"method\s*:\s*['"`](\w+)['"`]"#));
+static JS_NAV: LazyLock<Regex> = LazyLock::new(|| {
+    re(
+        r#"(?:\b(?:router|navigation|history|navigator|nav)\s*\.\s*(?:push|replace|navigate|redirect)|\b(?:navigate|redirect|permanentRedirect|goto|navigateTo))\s*\(\s*(?:\{\s*pathname\s*:\s*)?(['"`])((?:\$\{[^}]*\})?/[^'"`]*)['"`]"#,
+    )
+});
+static JSX_LINK: LazyLock<Regex> = LazyLock::new(|| {
+    re(
+        r#"<(?:Link|NavLink|RouterLink|router-link|NuxtLink|A|a)\b[^>]*?\b(?:href|to)\s*=\s*\{?\s*(['"`])(/[^'"`]*)['"`]"#,
+    )
+});
+static SERVER_NAV: LazyLock<Regex> = LazyLock::new(|| {
+    re(
+        r#"\b(?:redirect_to|redirect|RedirectResponse|HttpResponseRedirect)\s*\(?\s*f?['"](/[^'"]*)['"]"#,
+    )
+});
 static PY_HTTP: LazyLock<Regex> = LazyLock::new(|| {
     re(
         r#"\b(?:requests|httpx|client|session|self\.client)\s*\.\s*(get|post|put|patch|delete|head)\s*\(\s*f?['"]((?:https?://[^/'"]*)?/[^'"]*)['"]"#,
@@ -143,6 +160,29 @@ pub fn sites(lang: Language, safe: &str) -> Vec<Site> {
                 kind: ReferenceKind::Calls,
                 handler: None,
             });
+        }
+    }
+    let nav = |line: u32, path: &str| Site {
+        line,
+        name: format!("{NAV_PREFIX}{}", normalize_url(path)),
+        kind: ReferenceKind::Navigates,
+        handler: None,
+    };
+    if lang.is_js_family() || matches!(lang, Language::Svelte | Language::Vue | Language::Astro) {
+        for c in JS_NAV.captures_iter(safe) {
+            out.push(nav(line(c.get(0).unwrap().start()), &c[2]));
+        }
+    }
+    // Link targets live in markup, which the stripper may have blanked as
+    // strings; read them from the comment-stripped text as given.
+    if lang.is_js_family() || matches!(lang, Language::Svelte | Language::Vue | Language::Astro) {
+        for c in JSX_LINK.captures_iter(safe) {
+            out.push(nav(line(c.get(0).unwrap().start()), &c[2]));
+        }
+    }
+    if matches!(lang, Language::Python | Language::Ruby | Language::Php) {
+        for c in SERVER_NAV.captures_iter(safe) {
+            out.push(nav(line(c.get(0).unwrap().start()), &c[1]));
         }
     }
     if lang == Language::Python {
@@ -251,6 +291,16 @@ mod tests {
         assert_eq!(
             names,
             vec!["bind:fnptr:read", "bind:fnptr:write", "fire:fnptr:read"]
+        );
+        let nav = "function go() { router.push(`/items/${id}`); }\nconst L = () => <Link href=\"/about\">About</Link>;\n";
+        let names: Vec<String> = sites(Language::Tsx, nav)
+            .into_iter()
+            .map(|x| x.name)
+            .collect();
+        assert_eq!(names, vec!["nav:/items/:param", "nav:/about"]);
+        assert_eq!(
+            sites(Language::Ruby, "redirect_to '/login'\n")[0].name,
+            "nav:/login"
         );
         let py = "resp = requests.get('http://localhost:8000/items/5')\n";
         assert_eq!(sites(Language::Python, py)[0].name, "http:GET /items/5");

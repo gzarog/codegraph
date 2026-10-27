@@ -85,6 +85,9 @@ pub enum Route {
     Dead,
     Routes,
     Trails,
+    Entry,
+    Screens,
+    Steps(String),
     NotFound,
 }
 
@@ -107,6 +110,12 @@ pub fn parse_route(hash: &str) -> Route {
         "dead" => Route::Dead,
         "routes" => Route::Routes,
         "trails" => Route::Trails,
+        "entry" => Route::Entry,
+        "screens" => Route::Screens,
+        "steps" => match query_param(query, "id").filter(|s| !s.is_empty()) {
+            Some(id) => Route::Steps(id),
+            None => Route::NotFound,
+        },
         _ => Route::NotFound,
     }
 }
@@ -154,6 +163,10 @@ pub enum Msg {
     FlowSwap,
     ToggleUncertain(Side),
     DismissToast,
+    /// Save the SVG matching a selector: `(selector, file stem, "svg" | "png")`.
+    Export(String, String, &'static str),
+    /// A message from the page (export results).
+    Notice(String),
     Noop,
 }
 
@@ -184,6 +197,28 @@ impl FlowSlot {
     }
 }
 
+/// Lay out a node/link graph: `nodes` are `(id, label)`, links name ids in
+/// `from`/`to`.
+fn graph_state(data: Value, nodes: Vec<(String, String)>, links_key: &str) -> MapState {
+    let index: HashMap<&str, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, (id, _))| (id.as_str(), i))
+        .collect();
+    let edges: Vec<(usize, usize)> = arr(&data, links_key)
+        .iter()
+        .filter_map(|l| Some((*index.get(s(l, "from"))?, *index.get(s(l, "to"))?)))
+        .collect();
+    let labels: Vec<String> = nodes.iter().map(|(_, l)| l.clone()).collect();
+    let layout = layout::layered(&labels, &edges);
+    MapState {
+        ids: nodes.into_iter().map(|(id, _)| id).collect(),
+        data,
+        layout,
+        selected: None,
+    }
+}
+
 /// A readable fallback label for a symbol id before its name is known.
 fn short_id(id: &str) -> String {
     id.rsplit([':', '/']).next().unwrap_or(id).to_string()
@@ -200,6 +235,9 @@ pub enum Page {
     Dead(Value),
     Routes(Value),
     Trails(Value),
+    Entry(Value),
+    Screens(Box<MapState>),
+    Steps(Box<MapState>),
     NotFound,
 }
 
@@ -349,6 +387,9 @@ impl App {
             Route::Dead => "/api/deadcode".into(),
             Route::Routes => "/api/routes".into(),
             Route::Trails => "/api/trails".into(),
+            Route::Entry => "/api/entrypoints".into(),
+            Route::Screens => "/api/screens".into(),
+            Route::Steps(id) => format!("/api/steps?id={}", encode(id)),
             Route::Flow(from, to) => {
                 let (from, to) = (from.clone(), to.clone());
                 for (i, id) in [from.clone(), to.clone()].into_iter().enumerate() {
@@ -461,6 +502,35 @@ impl App {
             Route::Trails => {
                 host::title("Trails · CodeGraph");
                 Page::Trails(v)
+            }
+            Route::Entry => {
+                host::title("Entry points · CodeGraph");
+                Page::Entry(v)
+            }
+            Route::Screens => {
+                host::title("Screens · CodeGraph");
+                let nodes: Vec<(String, String)> = arr(&v, "screens")
+                    .iter()
+                    .map(|n| (s(n, "id").to_string(), s(n, "path").to_string()))
+                    .collect();
+                Page::Screens(Box::new(graph_state(v, nodes, "links")))
+            }
+            Route::Steps(_) => {
+                host::title(&format!(
+                    "Steps from {} · CodeGraph",
+                    s(&v["anchor"], "name")
+                ));
+                let nodes: Vec<(String, String)> = arr(&v, "steps")
+                    .iter()
+                    .map(|n| {
+                        let label = match n.get("node") {
+                            Some(node) if !node.is_null() => s(node, "name").to_string(),
+                            _ => s(n, "label").to_string(),
+                        };
+                        (s(n, "id").to_string(), label)
+                    })
+                    .collect();
+                Page::Steps(Box::new(graph_state(v, nodes, "links")))
             }
             Route::Home | Route::NotFound => return,
         };
@@ -582,7 +652,7 @@ impl App {
                 "Meta+k" | "Ctrl+k" | "/" => self.open_palette(),
                 "Escape" => {
                     self.palette = None;
-                    if let Page::Map(m) = &mut self.page {
+                    if let Page::Map(m) | Page::Screens(m) | Page::Steps(m) = &mut self.page {
                         m.selected = None;
                     }
                 }
@@ -662,9 +732,19 @@ impl App {
                 self.save_trail_local();
             }
             Msg::MapSelect(sel) => {
-                if let Page::Map(m) = &mut self.page {
+                if let Page::Map(m) | Page::Screens(m) | Page::Steps(m) = &mut self.page {
                     m.selected = if m.selected == sel { None } else { sel };
                 }
+            }
+            Msg::Export(selector, stem, format) => {
+                host::export(
+                    &json!({ "selector": selector, "filename": stem, "format": format })
+                        .to_string(),
+                );
+            }
+            Msg::Notice(text) => {
+                self.toast = Some(text);
+                self.after(3000, Msg::DismissToast);
             }
             Msg::FlowInput(slot, q) => {
                 let i = slot as usize;

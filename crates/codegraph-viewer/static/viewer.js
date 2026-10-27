@@ -118,7 +118,97 @@ const host = {
   },
   timer(id, ms) { setTimeout(() => wasm.cg_timer(id), ms); },
   log(ptr, len) { console.error(readStr(ptr, len)); },
+  export_image(ptr, len) {
+    exportImage(JSON.parse(readStr(ptr, len))).then(
+      (msg) => notice(msg),
+      (err) => notice("Export failed: " + err.message),
+    );
+  },
 };
+
+function notice(text) {
+  const [ptr, len] = passStr(text);
+  wasm.cg_notice(ptr, len);
+}
+
+const STYLE_PROPS = ["fill", "stroke", "stroke-width", "stroke-dasharray", "opacity", "font-family", "font-size", "font-weight", "text-anchor", "paint-order", "stroke-linejoin"];
+
+/** A standalone copy of an on-page SVG, in the light theme with styles inlined. */
+function standaloneSvg(src) {
+  const root = document.documentElement;
+  const prev = root.getAttribute("data-theme");
+  root.setAttribute("data-theme", "light");
+  try {
+    const copy = src.cloneNode(true);
+    const a = [src, ...src.querySelectorAll("*")];
+    const b = [copy, ...copy.querySelectorAll("*")];
+    a.forEach((el, i) => {
+      const cs = getComputedStyle(el);
+      const style = STYLE_PROPS.map((p) => `${p}:${cs.getPropertyValue(p)}`).join(";");
+      b[i].setAttribute("style", style);
+      b[i].removeAttribute("class");
+      for (const attr of [...b[i].attributes]) if (attr.name.startsWith("data-")) b[i].removeAttribute(attr.name);
+    });
+    const vb = src.viewBox.baseVal;
+    copy.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    copy.setAttribute("width", String(vb.width));
+    copy.setAttribute("height", String(vb.height));
+    const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    bg.setAttribute("width", "100%");
+    bg.setAttribute("height", "100%");
+    bg.setAttribute("fill", "#ffffff");
+    copy.insertBefore(bg, copy.firstChild);
+    return { text: new XMLSerializer().serializeToString(copy), width: vb.width, height: vb.height };
+  } finally {
+    if (prev === null) root.removeAttribute("data-theme"); else root.setAttribute("data-theme", prev);
+  }
+}
+
+function download(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function exportImage({ selector, filename, format }) {
+  const src = document.querySelector(selector);
+  if (!(src instanceof SVGSVGElement)) throw new Error("nothing to export");
+  const svg = standaloneSvg(src);
+  const svgBlob = new Blob([svg.text], { type: "image/svg+xml" });
+  if (format === "svg") {
+    download(svgBlob, filename + ".svg");
+    return "Saved " + filename + ".svg";
+  }
+  const scale = 2;
+  const img = new Image();
+  const url = URL.createObjectURL(svgBlob);
+  try {
+    img.src = url;
+    await img.decode();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(svg.width * scale);
+  canvas.height = Math.ceil(svg.height * scale);
+  const ctx = canvas.getContext("2d");
+  ctx.scale(scale, scale);
+  ctx.drawImage(img, 0, 0);
+  const png = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (!png) throw new Error("could not render the image");
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+    return "Image copied to the clipboard";
+  } catch (_) {
+    download(png, filename + ".png");
+    return "Saved " + filename + ".png";
+  }
+}
 
 async function main() {
   const root = document.getElementById("app");

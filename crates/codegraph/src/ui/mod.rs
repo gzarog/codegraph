@@ -10,6 +10,7 @@
 //! no outbound connections.
 
 pub mod api;
+pub mod flows;
 
 use crate::project::CodeGraph;
 use codegraph_http::{Request, Response};
@@ -108,7 +109,7 @@ impl Viewer {
         };
         resp.with_header(
             "content-security-policy",
-            "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'",
+            "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'",
         )
         .with_header("referrer-policy", "no-referrer")
         .with_header("cache-control", "no-store")
@@ -129,6 +130,9 @@ impl Viewer {
             ("GET", "/api/flow") => api::flow(&cg, q("from"), q("to")),
             ("GET", "/api/deadcode") => api::dead_code(&cg),
             ("GET", "/api/routes") => api::routes(&cg),
+            ("GET", "/api/entrypoints") => flows::entrypoints(&cg),
+            ("GET", "/api/screens") => flows::screens(&cg),
+            ("GET", "/api/steps") => flows::steps(&cg, q("id")),
             ("POST", "/api/sync") => cg
                 .sync(None)
                 .map(|r| json!({ "changed": r.files_indexed() + r.files_removed.len() }))
@@ -330,6 +334,81 @@ mod tests {
         );
         let map = body(v.handle(req("GET", "/api/map", &h)));
         assert_eq!(map["modules"][0]["id"], "src");
+    }
+
+    #[test]
+    fn screens_and_steps() {
+        let dir = tempfile::tempdir().unwrap();
+        let w = |p: &str, t: &str| {
+            let f = dir.path().join(p);
+            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+            std::fs::write(f, t).unwrap();
+        };
+        w(
+            "package.json",
+            r#"{"dependencies": {"next": "14", "react": "18"}}"#,
+        );
+        w(
+            "app/page.tsx",
+            "import { useRouter } from 'next/navigation';\nexport default function Home({ items }) {\n  const router = useRouter();\n  function openItem(id) {\n    if (id) {\n      router.push(`/items/${id}`);\n    }\n  }\n  async function load() {\n    const r = await fetch('/api/items');\n    localStorage.setItem('k', '1');\n    return r;\n  }\n  return <List onSelect={openItem} onLoad={load} />;\n}\n",
+        );
+        w(
+            "app/items/[id]/page.tsx",
+            "export default function ItemPage() { return <div/>; }\n",
+        );
+        w(
+            "app/api/items/route.ts",
+            "export async function GET() { return Response.json([]); }\n",
+        );
+        let mut cg = CodeGraph::init(dir.path()).unwrap();
+        cg.index_all(None).unwrap();
+        let v = Viewer::new(cg, 4000);
+        let h = [("host", "127.0.0.1:4000")];
+        let body = |r: Response| serde_json::from_slice::<Value>(&r.body).unwrap();
+        let screens = body(v.handle(req("GET", "/api/screens", &h)));
+        let links = screens["links"].as_array().unwrap();
+        assert_eq!(links.len(), 1, "{screens:#}");
+        assert_eq!(links[0]["when"][0], "id", "{screens:#}");
+        let home = screens["screens"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["path"] == "/")
+            .unwrap()
+            .clone();
+        let fn_id = body(v.handle(req("GET", "/api/search?q=Home", &h)))[0]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let steps = body(v.handle(req(
+            "GET",
+            &format!("/api/steps?id={}", crate::ui::tests::enc(&fn_id)),
+            &h,
+        )));
+        let kinds: Vec<&str> = steps["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|s| s["kind"].as_str())
+            .collect();
+        assert!(kinds.contains(&"screen"), "{steps:#}");
+        assert!(kinds.contains(&"request"), "{steps:#}");
+        assert!(kinds.contains(&"effect"), "{steps:#}");
+        assert_eq!(links[0]["from"], home["id"]);
+        let ep = body(v.handle(req("GET", "/api/entrypoints", &h)));
+        assert!(ep["routes"]["total"].as_u64().unwrap() >= 3, "{ep:#}");
+    }
+
+    fn enc(s: &str) -> String {
+        s.bytes()
+            .map(|b| {
+                if b.is_ascii_alphanumeric() {
+                    (b as char).to_string()
+                } else {
+                    format!("%{b:02X}")
+                }
+            })
+            .collect()
     }
 
     #[test]
