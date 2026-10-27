@@ -1,0 +1,15 @@
+[package]
+name = "codegraph-graph"
+description = "Graph traversal and queries over the CodeGraph store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+codegraph-core.workspace = true
+codegraph-store.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+codegraph-index.workspace = true
+tempfile = "3"

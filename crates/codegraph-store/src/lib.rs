@@ -359,11 +359,12 @@ impl Store {
     }
 
     pub fn count_refs(&self, status: RefStatus) -> Result<u64> {
-        Ok(self.conn.query_row(
-            "SELECT COUNT(*) FROM refs WHERE status = ?",
-            [status.as_str()],
-            |r| r.get::<_, i64>(0),
-        )? as u64)
+        // A literal status lets SQLite use the partial pending index.
+        let sql = format!(
+            "SELECT COUNT(*) FROM refs WHERE status = '{}'",
+            status.as_str()
+        );
+        Ok(self.conn.query_row(&sql, [], |r| r.get::<_, i64>(0))? as u64)
     }
 
     /// References (any status) from nodes in `file_path`.

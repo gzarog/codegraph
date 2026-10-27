@@ -92,15 +92,14 @@ CREATE INDEX IF NOT EXISTS idx_nodes_file_line ON nodes(file_path, start_line);
 
 CREATE INDEX IF NOT EXISTS idx_edges_source_kind ON edges(source, kind);
 CREATE INDEX IF NOT EXISTS idx_edges_target_kind ON edges(target, kind);
-CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_edges_identity
     ON edges(source, target, kind, IFNULL(line, -1), IFNULL(col, -1));
 
 CREATE INDEX IF NOT EXISTS idx_files_language ON files(language);
 
 CREATE INDEX IF NOT EXISTS idx_refs_from ON refs(from_node_id);
-CREATE INDEX IF NOT EXISTS idx_refs_status ON refs(status);
-CREATE INDEX IF NOT EXISTS idx_refs_file ON refs(file_path);
+-- Only pending rows are looked up by status; resolution keeps that set small.
+CREATE INDEX IF NOT EXISTS idx_refs_pending ON refs(id) WHERE status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_refs_target_file ON refs(target_file) WHERE target_file IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_refs_failed_tail ON refs(name_tail) WHERE status = 'failed';
 

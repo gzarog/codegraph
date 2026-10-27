@@ -453,7 +453,7 @@ impl<'a> Matcher<'a> {
             }
         }
         // 2. The same file.
-        if let Some(t) = self.best_in_file(file, name, lang, kind) {
+        if let Some(t) = self.best_in_file(from, file, name, lang, kind) {
             return Some(Match::new(t, "same-file", 0.9));
         }
         // 3. An import binding.
@@ -477,6 +477,7 @@ impl<'a> Matcher<'a> {
 
     fn best_in_file(
         &self,
+        from: SymId,
         file: &str,
         name: &str,
         lang: Language,
@@ -491,6 +492,7 @@ impl<'a> Matcher<'a> {
                 (s.name == name
                     || crate::symbols::case_insensitive(lang) && s.name.eq_ignore_ascii_case(name))
                     && kind_accepts(kind, s.kind)
+                    && self.syms.visible_from(i, from)
             })
             .max_by_key(|&i| {
                 let s = self.syms.get(i);
@@ -514,7 +516,7 @@ impl<'a> Matcher<'a> {
         let candidates = self.syms.named_for(name, lang);
         let accept = |i: &SymId| {
             let s = self.syms.get(*i);
-            same_family(s.language, lang) && kind_accepts(kind, s.kind)
+            same_family(s.language, lang) && kind_accepts(kind, s.kind) && !s.local
         };
         match lang {
             Language::Go => {
@@ -595,7 +597,10 @@ impl<'a> Matcher<'a> {
             .copied()
             .filter(|&i| {
                 let s = self.syms.get(i);
-                same_family(s.language, lang) && kind_accepts(kind, s.kind) && i != from
+                same_family(s.language, lang)
+                    && kind_accepts(kind, s.kind)
+                    && i != from
+                    && self.syms.visible_from(i, from)
             })
             .collect();
         // Methods are reached through a receiver; a bare call names a function.
@@ -823,20 +828,29 @@ impl<'a> Matcher<'a> {
                             NodeKind::Method | NodeKind::Function | NodeKind::Property
                         )
                         && s.owner().is_some()
+                        && !s.local
                 })
                 .collect();
-            return self
-                .pick_closest(
-                    &methods,
-                    file,
-                    kind,
-                    "name-match-member",
-                    "name-match-member-ambiguous",
-                )
-                .map(|m| Match {
-                    confidence: m.confidence * 0.8,
-                    ..m
-                });
+            // Without the receiver's type, only a name no other type shares is safe.
+            let owners: std::collections::HashSet<&str> = methods
+                .iter()
+                .filter_map(|&i| self.syms.get(i).owner())
+                .collect();
+            if owners.len() == 1 {
+                return self
+                    .pick_closest(
+                        &methods,
+                        file,
+                        kind,
+                        "name-match-member",
+                        "name-match-member",
+                    )
+                    .map(|m| Match {
+                        confidence: 0.5,
+                        ..m
+                    });
+            }
+            return None;
         }
         None
     }

@@ -20,6 +20,8 @@ pub struct Sym {
     pub exported: bool,
     /// Statement text of an `import` node.
     pub statement: Option<String>,
+    /// Declared inside a function/method body: visible only there.
+    pub local: bool,
 }
 
 impl Sym {
@@ -101,6 +103,7 @@ impl Symbols {
         for n in nodes.into_iter().filter(is_indexable) {
             s.add(n);
         }
+        s.mark_locals();
         for f in store.all_files()? {
             s.files_lower.insert(f.path.to_lowercase(), f.path.clone());
             s.files.insert(f.path);
@@ -150,7 +153,44 @@ impl Symbols {
             } else {
                 None
             },
+            local: false,
         });
+    }
+
+    /// Flag symbols whose owner (same file) is a function or method.
+    fn mark_locals(&mut self) {
+        let mut callables: HashSet<(&str, &str)> = HashSet::new();
+        for s in &self.syms {
+            if s.kind.is_callable() {
+                callables.insert((s.file.as_str(), s.qualified_name.as_str()));
+            }
+        }
+        let locals: Vec<SymId> = self
+            .syms
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| {
+                s.owner()
+                    .is_some_and(|o| callables.contains(&(s.file.as_str(), o)))
+            })
+            .map(|(i, _)| i)
+            .collect();
+        for i in locals {
+            self.syms[i].local = true;
+        }
+    }
+
+    /// Whether `target` can be referenced from `from`: a local symbol only
+    /// from within its enclosing function.
+    pub fn visible_from(&self, target: SymId, from: SymId) -> bool {
+        let t = &self.syms[target];
+        if !t.local {
+            return true;
+        }
+        let f = &self.syms[from];
+        let owner = t.owner().unwrap_or("");
+        f.file == t.file
+            && (f.qualified_name == owner || f.qualified_name.starts_with(&format!("{owner}::")))
     }
 
     pub fn add_super(&mut self, sub: SymId, sup: SymId) {
