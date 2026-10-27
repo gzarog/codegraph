@@ -172,9 +172,11 @@ pub fn explore(store: &Store, root: &Path, query: &str, opts: &ExploreOptions) -
             .unwrap_or("unknown");
         let total_lines = src.lines.len() as u32;
         let mut section = String::new();
+        let anchored = parts.anchors.iter().any(|(f, ..)| *f == plan.path);
         let names: Vec<String> = plan
             .symbols
             .iter()
+            .filter(|s| !anchored || s.named)
             .take(6)
             .map(|s| s.node.name.clone())
             .collect();
@@ -196,21 +198,37 @@ pub fn explore(store: &Store, root: &Path, query: &str, opts: &ExploreOptions) -
                 let _ = writeln!(section, "⚠ changed on disk after the last index sync — source omitted; Read this file directly.");
             }
         } else {
-            let ranges =
-                if total_lines <= WHOLE_FILE_LINES || plan.pinned && plan.symbols.is_empty() {
-                    vec![(1, total_lines.min(400))]
-                } else {
-                    let mut r: Vec<(u32, u32)> = plan
-                        .symbols
+            let anchors: Vec<(u32, u32)> = parts
+                .anchors
+                .iter()
+                .filter(|(f, ..)| *f == plan.path)
+                .map(|(_, a, b)| (*a, *b))
+                .collect();
+            let ranges = if total_lines <= WHOLE_FILE_LINES
+                || plan.pinned && plan.symbols.is_empty() && anchors.is_empty()
+            {
+                vec![(1, total_lines.min(400))]
+            } else {
+                let mut r = anchor_ranges(
+                    store,
+                    &plan.path,
+                    &anchors,
+                    total_lines,
+                    budget.max_chars_per_file,
+                )?;
+                // An anchored file shows the anchors plus what the query named.
+                r.extend(
+                    plan.symbols
                         .iter()
                         .filter(|s| s.node.kind != NodeKind::File)
-                        .map(|s| symbol_range(&s.node, budget.max_chars_per_file))
-                        .collect();
-                    if r.is_empty() {
-                        r.push((1, total_lines.min(80)));
-                    }
-                    merge_ranges(r, budget.gap_threshold)
-                };
+                        .filter(|s| anchors.is_empty() || s.named)
+                        .map(|s| symbol_range(&s.node, budget.max_chars_per_file)),
+                );
+                if r.is_empty() {
+                    r.push((1, total_lines.min(80)));
+                }
+                merge_ranges(r, budget.gap_threshold)
+            };
             let cap = budget.max_chars_per_file.max(if plan.pinned {
                 budget.max_chars_per_file * 2
             } else {
@@ -257,6 +275,10 @@ pub fn explore(store: &Store, root: &Path, query: &str, opts: &ExploreOptions) -
         shown_files.push(plan.path.clone());
     }
 
+    let dynamic = dispatch_section(store, &named, &ranked)?;
+    if !dynamic.is_empty() && out.len() + dynamic.len() <= budget.max_output_chars + 2000 {
+        out.push_str(&dynamic);
+    }
     let blast = blast_section(&graph, &named, &ranked)?;
     if !blast.is_empty() && out.len() + blast.len() <= budget.max_output_chars + 2000 {
         out.push_str(&blast);
@@ -286,6 +308,44 @@ fn symbol_range(n: &Node, max_chars: usize) -> (u32, u32) {
     }
     (start, end.min(start + max_lines))
 }
+
+/// Ranges for `path:line` anchors: the innermost symbol around each line
+/// (a large one trimmed to a window), or a window around the lines.
+fn anchor_ranges(
+    store: &Store,
+    path: &str,
+    anchors: &[(u32, u32)],
+    total_lines: u32,
+    max_chars: usize,
+) -> Result<Vec<(u32, u32)>> {
+    if anchors.is_empty() {
+        return Ok(Vec::new());
+    }
+    let nodes = store.nodes_in_file(path)?;
+    let mut out = Vec::new();
+    for &(a, b) in anchors {
+        let around = nodes
+            .iter()
+            .filter(|n| n.kind != NodeKind::File && n.start_line <= a && b <= n.end_line)
+            .min_by_key(|n| n.end_line - n.start_line);
+        let window = (
+            a.saturating_sub(ANCHOR_CONTEXT).max(1),
+            (b + ANCHOR_CONTEXT).min(total_lines),
+        );
+        out.push(match around {
+            Some(n) if n.end_line - n.start_line <= (max_chars / 40) as u32 => {
+                symbol_range(n, max_chars)
+            }
+            Some(n) => (n.start_line, n.start_line),
+            None => window,
+        });
+        out.push(window);
+    }
+    Ok(out)
+}
+
+/// Lines shown on each side of a `path:line` anchor.
+const ANCHOR_CONTEXT: u32 = 12;
 
 /// Types longer than this show only their first `TYPE_HEADER_LINES` lines.
 const TYPE_HEADER_THRESHOLD: u32 = 40;
@@ -371,6 +431,89 @@ fn blast_section(graph: &Graph<'_>, named: &[&Scored], ranked: &[Scored]) -> Res
         );
     }
     Ok(out)
+}
+
+/// Links the call graph only has by heuristic: event emits joined to their
+/// listeners, function-pointer calls to the functions in that slot, HTTP
+/// requests to the routes serving them, and the reverse for handlers.
+fn dispatch_section(store: &Store, named: &[&Scored], ranked: &[Scored]) -> Result<String> {
+    let focus: Vec<&Node> = if named.is_empty() {
+        ranked.iter().take(3).map(|s| &s.node).collect()
+    } else {
+        named.iter().take(6).map(|s| &s.node).collect()
+    };
+    let kinds = [codegraph_core::EdgeKind::Calls];
+    let mut out = String::new();
+    let describe = |via: &str, key: &str| -> String {
+        let key = key.split_once(':').map(|(_, k)| k).unwrap_or(key);
+        match via {
+            "http" => format!("requests `{key}`"),
+            "fnptr" => format!("calls function-pointer slot `{key}`"),
+            _ => format!("emits `{key}`"),
+        }
+    };
+    let dispatch_of = |e: &codegraph_core::Edge| -> Option<(String, String)> {
+        let m = e.metadata.as_ref()?;
+        if m.get("synthesizedBy")?.as_str()? != "dispatch" {
+            return None;
+        }
+        let via = m.get("dispatch")?.as_str()?.to_string();
+        let key = m.get("key")?.as_str()?.to_string();
+        Some((via, key))
+    };
+    for n in focus {
+        if n.kind == NodeKind::File {
+            continue;
+        }
+        // Outgoing: grouped by what is dispatched.
+        let mut groups: Vec<((String, String), Vec<String>)> = Vec::new();
+        for e in store.outgoing_edges(&n.id, &kinds)? {
+            let Some(k) = dispatch_of(&e) else { continue };
+            let Some(t) = store.node(&e.target)? else {
+                continue;
+            };
+            let label = format!("{} ({})", t.name, loc(&t));
+            match groups.iter_mut().find(|(g, _)| *g == k) {
+                Some((_, v)) => v.push(label),
+                None => groups.push((k, vec![label])),
+            }
+        }
+        for ((via, key), targets) in groups {
+            let _ = writeln!(
+                out,
+                "- `{}` {} → {}",
+                n.name,
+                describe(&via, &key),
+                targets.join(", ")
+            );
+        }
+        // Incoming: who reaches this handler dynamically.
+        let mut callers = Vec::new();
+        for e in store.incoming_edges(&n.id, &kinds)? {
+            let Some((via, key)) = dispatch_of(&e) else {
+                continue;
+            };
+            let Some(s) = store.node(&e.source)? else {
+                continue;
+            };
+            callers.push(format!("{} ({}) {}", s.name, loc(&s), describe(&via, &key)));
+        }
+        if !callers.is_empty() {
+            let more = callers.len() > 5;
+            callers.truncate(5);
+            let _ = writeln!(
+                out,
+                "- `{}` is reached dynamically: {}{}",
+                n.name,
+                callers.join("; "),
+                if more { "; …" } else { "" }
+            );
+        }
+    }
+    if out.is_empty() {
+        return Ok(out);
+    }
+    Ok(format!("## Dynamic dispatch (heuristic links)\n{out}\n"))
 }
 
 /// Close spellings of names that matched nothing.

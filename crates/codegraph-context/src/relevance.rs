@@ -22,6 +22,8 @@ pub struct Scored {
 pub struct QueryParts {
     /// Indexed files named by path or basename.
     pub files: Vec<String>,
+    /// `path:line` / `path:start-end` anchors on named files.
+    pub anchors: Vec<(String, u32, u32)>,
     /// Identifier-like tokens (possibly qualified: `A.b`, `A::b`).
     pub identifiers: Vec<String>,
     pub mentions_tests: bool,
@@ -35,6 +37,23 @@ fn looks_like_path(tok: &str) -> bool {
                 && ext.chars().all(|c| c.is_ascii_alphanumeric())
                 && codegraph_core::language::is_source_file(tok)
         })
+}
+
+/// `src/a.ts:42`, `src/a.ts:40-60`, `src/a.ts:42:7` → the path and line range.
+fn split_anchor(tok: &str) -> (&str, Option<(u32, u32)>) {
+    let mut parts = tok.splitn(3, ':');
+    let path = parts.next().unwrap_or(tok);
+    let Some(lines) = parts.next() else {
+        return (tok, None);
+    };
+    let range = match lines.split_once('-') {
+        Some((a, b)) => a.parse().ok().zip(b.parse().ok()),
+        None => lines.parse().ok().map(|n| (n, n)),
+    };
+    match range {
+        Some((a, b)) if a > 0 && b >= a => (path, Some((a, b))),
+        _ => (tok, None),
+    }
 }
 
 /// Split a query into file names and identifiers.
@@ -56,16 +75,15 @@ pub fn parse_parts(store: &Store, query: &str) -> Result<QueryParts> {
         .filter(|t| !t.is_empty())
         .collect();
     let mut files: Vec<String> = Vec::new();
-    let all_files = if tokens.iter().any(|t| looks_like_path(t)) {
+    let all_files = if tokens.iter().any(|t| looks_like_path(split_anchor(t).0)) {
         store.all_files()?
     } else {
         Vec::new()
     };
     for tok in &tokens {
-        if looks_like_path(tok) {
-            let t = tok.trim_start_matches("./");
-            // `path:line` anchors.
-            let t = t.split(':').next().unwrap_or(t);
+        let (path, anchor) = split_anchor(tok);
+        if looks_like_path(path) {
+            let t = path.trim_start_matches("./");
             let hits: Vec<&String> = all_files
                 .iter()
                 .map(|f| &f.path)
@@ -75,6 +93,9 @@ pub fn parse_parts(store: &Store, query: &str) -> Result<QueryParts> {
                 for h in hits.into_iter().take(3) {
                     if !files.contains(h) {
                         files.push(h.clone());
+                    }
+                    if let Some((a, b)) = anchor {
+                        parts.anchors.push((h.clone(), a, b));
                     }
                 }
                 continue;
@@ -282,4 +303,17 @@ pub fn rank(store: &Store, query: &str, parts: &QueryParts, limit: usize) -> Res
     });
     ranked.truncate(limit);
     Ok(ranked)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn splits_anchors() {
+        assert_eq!(split_anchor("src/a.ts:42"), ("src/a.ts", Some((42, 42))));
+        assert_eq!(split_anchor("a.rs:40-60"), ("a.rs", Some((40, 60))));
+        assert_eq!(split_anchor("a.rs:42:7"), ("a.rs", Some((42, 42))));
+        assert_eq!(split_anchor("Foo::bar"), ("Foo::bar", None));
+    }
 }
