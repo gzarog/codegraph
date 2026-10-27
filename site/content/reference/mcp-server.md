@@ -9,7 +9,11 @@ description: The codegraph MCP server, its tools, and how agents use them.
 { "mcpServers": { "codegraph": { "command": "codegraph", "args": ["serve", "--mcp"] } } }
 ```
 
-The server finds the project from the directory the agent starts it in (or the agent's root URI), goes through the project's [shared daemon](/guides/daemon/), and watches files so answers stay current.
+The server finds the project from the directory the agent starts it in, goes through the project's [shared daemon](/guides/daemon/), and watches files so answers stay current. When that directory has no index above it, the server tries, in order:
+
+1. the `rootUri` or `workspaceFolders` the agent sends in `initialize`;
+2. the agent's `roots/list`, if it advertises the `roots` capability;
+3. the indexed projects below a workspace directory (one with `.git` or a manifest), up to three levels down. Exactly one is used as the default. With several, every tool marks `projectPath` as required, and a call without it lists the projects to choose from.
 
 ## Tools
 
@@ -26,11 +30,17 @@ By default only `codegraph_explore` is listed: one well-described tool is what a
 | `codegraph_files` | The indexed file tree with languages and symbol counts. |
 | `codegraph_status` | Index health: counts, last sync, pending changes, and whether an update is available. |
 
-Every tool takes an optional `projectPath` to query another indexed project.
+Every tool takes an optional `projectPath` to query another indexed project. A path inside a separate git repository that the enclosing project's index doesn't cover gets the same "not indexed" guidance as a project with no index. Such answers, and a call that names no project when there is no default, come back as ordinary text rather than errors, so the agent keeps using the tools for the projects that are indexed.
+
+With `CODEGRAPH_MCP_TOOLS` set, tools outside the list are refused even when called by name.
 
 ## Freshness
 
 When a file the answer mentions changed after the last sync, the answer starts with a warning naming it, so the agent knows to read that one file directly. Everything else in the answer is current.
+
+## Lifecycle
+
+The server exits when the agent that launched it exits or closes its input. A server that receives no traffic at all within 15 minutes of starting is assumed to be left over from an abandoned launch and exits; `CODEGRAPH_STARTUP_HANDSHAKE_TIMEOUT_MS` changes the wait (`0` disables it). A `server/discover` probe is answered at once with "method not found", which sends newer clients on to `initialize`.
 
 ## Instructions
 

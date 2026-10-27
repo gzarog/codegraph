@@ -13,6 +13,16 @@ use std::time::{Duration, Instant};
 /// Quiet period after the last change before syncing.
 pub const DEBOUNCE: Duration = Duration::from_millis(800);
 
+/// The quiet period: `CODEGRAPH_WATCH_DEBOUNCE_MS` within 100ms–60s, else
+/// [`DEBOUNCE`] (a likely typo is not silently capped).
+pub fn debounce() -> Duration {
+    std::env::var("CODEGRAPH_WATCH_DEBOUNCE_MS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|ms| (100..=60_000).contains(ms))
+        .map_or(DEBOUNCE, Duration::from_millis)
+}
+
 pub struct Watcher {
     _inner: notify::RecommendedWatcher,
     stop: Arc<AtomicBool>,
@@ -88,6 +98,7 @@ pub fn watch(
     inner.watch(&root, RecursiveMode::Recursive)?;
     let stop = Arc::new(AtomicBool::new(false));
     let (stop2, pend) = (stop.clone(), pending.clone());
+    let quiet = debounce();
     std::thread::spawn(move || {
         while !stop2.load(Ordering::Relaxed) {
             std::thread::sleep(Duration::from_millis(200));
@@ -95,7 +106,7 @@ pub fn watch(
                 .lock()
                 .ok()
                 .and_then(|t| *t)
-                .is_some_and(|t| t.elapsed() >= DEBOUNCE);
+                .is_some_and(|t| t.elapsed() >= quiet);
             if !due {
                 continue;
             }

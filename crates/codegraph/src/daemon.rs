@@ -213,22 +213,24 @@ pub fn connect_or_spawn(root: &Path) -> Option<TcpStream> {
 }
 
 /// Relay stdio to the daemon until either side closes.
-pub fn proxy(stream: TcpStream) -> std::io::Result<()> {
+pub fn proxy(
+    stream: TcpStream,
+    lines: std::sync::mpsc::Receiver<String>,
+    stdout: std::sync::Arc<std::sync::Mutex<std::io::Stdout>>,
+) -> std::io::Result<()> {
     let mut to_daemon = stream.try_clone()?;
     std::thread::spawn(move || {
-        let stdin = std::io::stdin();
-        for line in stdin.lock().lines() {
-            let Ok(line) = line else { break };
+        for line in lines {
             if writeln!(to_daemon, "{line}").is_err() {
                 break;
             }
         }
         let _ = to_daemon.shutdown(Shutdown::Write);
     });
-    let stdout = std::io::stdout();
-    let mut out = stdout.lock();
     for line in BufReader::new(stream).lines() {
-        writeln!(out, "{}", line?)?;
+        let line = line?;
+        let mut out = stdout.lock().unwrap_or_else(|p| p.into_inner());
+        writeln!(out, "{line}")?;
         out.flush()?;
     }
     Ok(())

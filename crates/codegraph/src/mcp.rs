@@ -8,7 +8,9 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 pub const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 
@@ -241,7 +243,16 @@ pub struct Server {
     client: Option<(String, String)>,
     /// What this session's explore calls already showed, per project.
     memory: Option<HashMap<PathBuf, codegraph_context::ExploreMemory>>,
+    /// The client can answer `roots/list`.
+    client_roots: bool,
+    /// Requests this server sends the client, written after the next reply.
+    outbox: Vec<Value>,
+    /// Indexed projects below the launch directory, when none was adopted.
+    subprojects: Vec<PathBuf>,
 }
+
+/// The id of this server's `roots/list` request.
+const ROOTS_REQUEST_ID: &str = "codegraph-roots";
 
 /// Prefix `text` with a warning naming the files it mentions that changed on
 /// disk but aren't re-indexed yet.
@@ -301,20 +312,57 @@ impl Server {
             tools: enabled_tools(),
             client: None,
             memory: explore_dedup_enabled().then(HashMap::new),
+            client_roots: false,
+            outbox: Vec::new(),
+            subprojects: Vec::new(),
         }
     }
 
+    /// Indexed sub-projects of the launch directory: exactly one becomes the
+    /// default project; several are listed when a call names none.
+    pub fn with_subprojects(mut self, found: Vec<PathBuf>) -> Self {
+        if self.default_root.is_none() {
+            match found.as_slice() {
+                [one] => self.default_root = Some(one.clone()),
+                _ => self.subprojects = found,
+            }
+        }
+        self
+    }
+
+    fn no_default_guidance(&self) -> String {
+        let mut out = "This server has no default project (no .codegraph/ at or above the directory it was started in). Pass `projectPath` with the project's directory.".to_string();
+        if !self.subprojects.is_empty() {
+            out.push_str("\nIndexed projects under the workspace:");
+            for p in self.subprojects.iter().take(20) {
+                out.push_str(&format!("\n- {}", p.display()));
+            }
+        }
+        out
+    }
+
+    /// The project a call is about. Err holds guidance for the agent.
     fn project(&mut self, project_path: Option<&str>) -> Result<Arc<Mutex<CodeGraph>>, String> {
         let start = match project_path {
             Some(p) => PathBuf::from(p),
-            None => self.default_root.clone().ok_or_else(|| {
-                "This server has no default project (no .codegraph/ at its root). Pass `projectPath` to a project that has one.".to_string()
-            })?,
+            None => self
+                .default_root
+                .clone()
+                .ok_or_else(|| self.no_default_guidance())?,
         };
-        let root = find_root(&start).ok_or_else(|| {
+        let not_indexed = || {
             format!("{} is not indexed (no .codegraph/ found). Use your built-in tools for it; the user can run `codegraph init` there.", start.display())
-        })?;
-        self.engine.project(&root)
+        };
+        let root = find_root(&start).ok_or_else(not_indexed)?;
+        let cg = self.engine.project(&root)?;
+        if let Some(nested) = unindexed_nested_repo(&start, &root, &cg) {
+            return Err(format!(
+                "{} is a separate repository inside {} that its index doesn't cover. Use your built-in tools for it; the user can run `codegraph init` there.",
+                nested.display(),
+                root.display()
+            ));
+        }
+        Ok(cg)
     }
 
     pub fn handle(&mut self, msg: &Value) -> Option<Value> {
@@ -341,13 +389,23 @@ impl Server {
                 } else {
                     PROTOCOL_VERSIONS[0]
                 };
+                self.client_roots = params
+                    .pointer("/capabilities/roots")
+                    .is_some_and(|r| !r.is_null());
                 if self.default_root.is_none() {
-                    if let Some(uri) = params.get("rootUri").and_then(|u| u.as_str()) {
-                        self.default_root = uri
-                            .strip_prefix("file://")
-                            .map(PathBuf::from)
-                            .and_then(|p| find_root(&p));
-                    }
+                    let uris = params
+                        .get("rootUri")
+                        .and_then(Value::as_str)
+                        .into_iter()
+                        .chain(
+                            params
+                                .get("workspaceFolders")
+                                .and_then(Value::as_array)
+                                .into_iter()
+                                .flatten()
+                                .filter_map(|f| f.get("uri").and_then(Value::as_str)),
+                        );
+                    self.default_root = uris.filter_map(file_uri_path).find_map(|p| find_root(&p));
                 }
                 Ok(json!({
                     "protocolVersion": version,
@@ -361,16 +419,32 @@ impl Server {
             }
             "ping" => Ok(json!({})),
             "tools/list" => {
+                let no_default = self.default_root.is_none();
                 let tools: Vec<Value> = tool_definitions()
                     .into_iter()
                     .filter(|t| self.tools.iter().any(|n| t["name"] == n.as_str()))
+                    .map(|mut t| {
+                        // Without a default project every call must name one.
+                        if no_default {
+                            let schema = &mut t["inputSchema"];
+                            let mut required =
+                                schema["required"].as_array().cloned().unwrap_or_default();
+                            required.push(json!("projectPath"));
+                            schema["required"] = Value::Array(required);
+                        }
+                        t
+                    })
                     .collect();
                 Ok(json!({ "tools": tools }))
             }
             "tools/call" => {
                 let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
                 let args = params.get("arguments").cloned().unwrap_or(json!({}));
-                if !tool_definitions().iter().any(|t| t["name"] == name) {
+                let trimmed =
+                    std::env::var("CODEGRAPH_MCP_TOOLS").is_ok_and(|v| !v.trim().is_empty());
+                if !tool_definitions().iter().any(|t| t["name"] == name)
+                    || trimmed && !self.tools.iter().any(|t| t == name)
+                {
                     Err((-32602, format!("unknown tool: {name}")))
                 } else {
                     let result = self.call_tool(name, &args);
@@ -385,7 +459,33 @@ impl Server {
             }
             "resources/list" => Ok(json!({ "resources": [] })),
             "prompts/list" => Ok(json!({ "prompts": [] })),
+            "notifications/initialized" => {
+                if self.default_root.is_none() && self.client_roots {
+                    self.outbox.push(json!({
+                        "jsonrpc": "2.0",
+                        "id": ROOTS_REQUEST_ID,
+                        "method": "roots/list",
+                    }));
+                }
+                return None;
+            }
             m if m.starts_with("notifications/") => return None,
+            // A response to a request of ours.
+            "" if msg.get("result").is_some() || msg.get("error").is_some() => {
+                if id.as_ref().and_then(Value::as_str) == Some(ROOTS_REQUEST_ID)
+                    && self.default_root.is_none()
+                {
+                    self.default_root = msg
+                        .pointer("/result/roots")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|r| r.get("uri").and_then(Value::as_str))
+                        .filter_map(file_uri_path)
+                        .find_map(|p| find_root(&p));
+                }
+                return None;
+            }
             _ => Err((-32601, format!("method not found: {method}"))),
         };
         let id = id?;
@@ -398,9 +498,11 @@ impl Server {
     }
 
     pub fn call_tool(&mut self, name: &str, args: &Value) -> Value {
+        // Guidance, not an error: early errors teach an agent to give up on
+        // the tools for the whole session.
         let cg = match self.project(arg_str(args, "projectPath")) {
             Ok(cg) => cg,
-            Err(e) => return error_result(e),
+            Err(e) => return text_result(e),
         };
         let mut guard = match cg.lock() {
             Ok(g) => g,
@@ -425,9 +527,17 @@ impl Server {
     }
 
     /// Serve until stdin closes.
-    pub fn run(&mut self, input: impl BufRead, mut output: impl Write) -> std::io::Result<()> {
-        for line in input.lines() {
-            let line = line?;
+    pub fn run(&mut self, input: impl BufRead, output: impl Write) -> std::io::Result<()> {
+        self.run_lines(input.lines().map_while(Result::ok), output)
+    }
+
+    /// Serve each line until the lines end.
+    pub fn run_lines(
+        &mut self,
+        lines: impl Iterator<Item = String>,
+        mut output: impl Write,
+    ) -> std::io::Result<()> {
+        for line in lines {
             if line.trim().is_empty() {
                 continue;
             }
@@ -441,13 +551,139 @@ impl Server {
                     json!({ "jsonrpc": "2.0", "id": null, "error": { "code": -32700, "message": format!("parse error: {e}") } }),
                 ),
             };
-            if let Some(r) = reply {
+            for r in reply.into_iter().chain(self.outbox.drain(..)) {
                 writeln!(output, "{r}")?;
                 output.flush()?;
             }
         }
         Ok(())
     }
+}
+
+/// The local path a `file://` URI names (percent-escapes decoded).
+pub fn file_uri_path(uri: &str) -> Option<PathBuf> {
+    let rest = uri.strip_prefix("file://")?;
+    // `file://localhost/x` and `file:///x` both name `/x`.
+    let rest = rest.strip_prefix("localhost").unwrap_or(rest);
+    let bytes = rest.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(b) = u8::from_str_radix(&rest[i + 1..i + 3], 16) {
+                out.push(b);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    let path = String::from_utf8(out).ok()?;
+    // `/C:/work` on Windows is `C:/work`.
+    let path = match path.as_bytes() {
+        [b'/', d, b':', ..] if d.is_ascii_alphabetic() => path[1..].to_string(),
+        _ => path,
+    };
+    Some(PathBuf::from(path))
+}
+
+/// A separate git repository between `start` and the index `root` that the
+/// index holds no files of: the ancestor's index doesn't speak for it.
+fn unindexed_nested_repo(start: &Path, root: &Path, cg: &Arc<Mutex<CodeGraph>>) -> Option<PathBuf> {
+    let start = start.canonicalize().ok()?;
+    let nested = start
+        .ancestors()
+        .take_while(|d| *d != root)
+        .filter(|d| d.join(".git").exists())
+        .last()?
+        .to_path_buf();
+    let rel = nested
+        .strip_prefix(root)
+        .ok()?
+        .to_string_lossy()
+        .replace('\\', "/");
+    let guard = cg.lock().unwrap_or_else(|p| p.into_inner());
+    let covered = guard.store().files_under(&rel).is_ok_and(|f| !f.is_empty());
+    (!covered).then_some(nested)
+}
+
+/// Directories skipped when looking for indexed sub-projects.
+const SCAN_SKIP: &[&str] = &[
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "vendor",
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+];
+
+/// Indexed projects below a workspace directory (one with `.git` or a
+/// manifest), three levels deep at most.
+pub fn scan_subprojects(base: &Path) -> Vec<PathBuf> {
+    const MANIFESTS: &[&str] = &[
+        ".git",
+        "package.json",
+        "Cargo.toml",
+        "go.mod",
+        "pyproject.toml",
+        "pom.xml",
+        "build.gradle",
+        "composer.json",
+        "Gemfile",
+        "pnpm-workspace.yaml",
+    ];
+    if !MANIFESTS.iter().any(|m| base.join(m).exists()) {
+        return Vec::new();
+    }
+    let mut found = Vec::new();
+    let mut level = vec![base.to_path_buf()];
+    let mut visited = 0;
+    for _ in 0..3 {
+        let mut next = Vec::new();
+        for dir in level {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for e in entries.flatten() {
+                visited += 1;
+                if visited > 5000 {
+                    return found;
+                }
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.starts_with('.') || SCAN_SKIP.contains(&name.as_str()) {
+                    continue;
+                }
+                let path = e.path();
+                if !e.file_type().is_ok_and(|t| t.is_dir()) {
+                    continue;
+                }
+                if crate::project::is_initialized(&path) {
+                    found.push(path);
+                } else {
+                    next.push(path);
+                }
+            }
+        }
+        level = next;
+    }
+    found.sort();
+    found
+}
+
+/// A `codegraph_files` path filter as a project-relative directory: `/`, `.`
+/// and an empty string mean the whole project; `./src`, backslashes and
+/// absolute paths inside the project are accepted.
+pub fn normalize_dir_filter(dir: &str, root: &Path) -> Option<String> {
+    let d = dir.trim().replace('\\', "/");
+    let root_s = root.to_string_lossy().replace('\\', "/");
+    let d = d.strip_prefix(&root_s).unwrap_or(&d);
+    let d = d.trim_start_matches("./").trim_matches('/');
+    let d = d.strip_prefix("./").unwrap_or(d);
+    (!d.is_empty() && d != ".").then(|| d.to_string())
 }
 
 /// Map the search tool's `type` shorthand to a kind.
@@ -564,9 +800,10 @@ pub fn run_tool(cg: &CodeGraph, name: &str, args: &Value) -> Result<String, Stri
                 .unwrap_or("tree")
                 .parse()
                 .map_err(|err: String| err)?;
+            let dir = arg_str(args, "path").and_then(|d| normalize_dir_filter(d, cg.root()));
             Ok(format::files(
                 &files,
-                arg_str(args, "path"),
+                dir.as_deref(),
                 arg_str(args, "pattern"),
                 format,
                 arg_bool(args, "includeMetadata").unwrap_or(true),
@@ -673,26 +910,122 @@ pub fn start_telemetry_thread() {
     });
 }
 
+/// Default wait for the first byte of MCP traffic before assuming the
+/// launch was abandoned (a host that kept our pipes open but went away).
+const STARTUP_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(900);
+
+/// `CODEGRAPH_STARTUP_HANDSHAKE_TIMEOUT_MS`: 0 disables; invalid → default.
+fn startup_handshake_timeout() -> Option<Duration> {
+    match std::env::var("CODEGRAPH_STARTUP_HANDSHAKE_TIMEOUT_MS")
+        .ok()
+        .map(|v| v.trim().parse::<i64>())
+    {
+        Some(Ok(ms)) if ms <= 0 => None,
+        Some(Ok(ms)) => Some(Duration::from_millis(ms as u64)),
+        _ => Some(STARTUP_HANDSHAKE_TIMEOUT),
+    }
+}
+
+/// Read stdin on a thread from the start, so the process answers probes
+/// (`server/discover`) at once and can tell whether anyone is talking to it,
+/// whatever the main thread is waiting on.
+fn stdin_lines(out: Arc<Mutex<std::io::Stdout>>) -> std::sync::mpsc::Receiver<String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let heard = Arc::new(AtomicBool::new(false));
+    if let Some(timeout) = startup_handshake_timeout() {
+        let heard = heard.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(timeout);
+            if !heard.load(Ordering::Relaxed) {
+                eprintln!("[CodeGraph] no MCP traffic since startup; exiting");
+                std::process::exit(0);
+            }
+        });
+    }
+    std::thread::spawn(move || {
+        let stdin = std::io::stdin();
+        for line in stdin.lock().lines() {
+            let Ok(line) = line else { break };
+            heard.store(true, Ordering::Relaxed);
+            // Newer clients probe with `server/discover` first; a server
+            // without it answers "method not found" so they move on.
+            if let Ok(msg) = serde_json::from_str::<Value>(&line) {
+                if msg.get("method").and_then(Value::as_str) == Some("server/discover") {
+                    if let Some(id) = msg.get("id") {
+                        let reply = json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": "method not found: server/discover" } });
+                        let mut o = out.lock().unwrap_or_else(|p| p.into_inner());
+                        let _ = writeln!(o, "{reply}");
+                        let _ = o.flush();
+                    }
+                    continue;
+                }
+            }
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    rx
+}
+
 /// Run the stdio server rooted at `root` (or the client's root). With a
 /// project root and watching on, sessions go through the project's shared
 /// daemon unless `daemon` is false; if the daemon can't be reached the
 /// server runs in-process.
 pub fn serve_stdio(root: Option<&Path>, watch: bool, daemon: bool) -> std::io::Result<()> {
     exit_with_parent();
+    let stdout = Arc::new(Mutex::new(std::io::stdout()));
+    let lines = stdin_lines(stdout.clone());
     let default_root = root.and_then(find_root);
     if let (true, true, Some(r)) = (daemon && crate::daemon::enabled(), watch, &default_root) {
         match crate::daemon::connect_or_spawn(r) {
-            Some(stream) => return crate::daemon::proxy(stream),
+            Some(stream) => return crate::daemon::proxy(stream, lines, stdout),
             None => eprintln!("[CodeGraph] daemon unavailable; serving in-process"),
         }
     }
-    let mut server = Server::new(default_root, watch);
+    let subprojects = match (&default_root, root) {
+        (None, Some(base)) => {
+            let found = scan_subprojects(base);
+            match found.len() {
+                0 => {}
+                1 => eprintln!(
+                    "[CodeGraph] using the indexed project {}",
+                    found[0].display()
+                ),
+                n => eprintln!(
+                    "[CodeGraph] {n} indexed projects under {}; calls must pass projectPath",
+                    base.display()
+                ),
+            }
+            found
+        }
+        _ => Vec::new(),
+    };
+    let mut server = Server::new(default_root, watch).with_subprojects(subprojects);
     start_telemetry_thread();
-    let stdin = std::io::stdin();
-    let stdout = std::io::stdout();
-    let result = server.run(stdin.lock(), stdout.lock());
+    let result = server.run_lines(lines.into_iter(), SharedOut(stdout));
     crate::telemetry::persist();
     result
+}
+
+/// Stdout shared with the stdin thread's direct replies.
+struct SharedOut(Arc<Mutex<std::io::Stdout>>);
+
+impl Write for SharedOut {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap_or_else(|p| p.into_inner()).write(buf)
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        self.0
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .write_all(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.lock().unwrap_or_else(|p| p.into_inner()).flush()
+    }
 }
 
 #[cfg(test)]
@@ -719,10 +1052,124 @@ mod tests {
             .handle(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))
             .is_none());
         let call = s.handle(&json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "codegraph_explore", "arguments": {"query": "x"}}})).unwrap();
-        assert_eq!(call["result"]["isError"], true);
+        // Guidance, never an error.
+        assert!(call["result"].get("isError").is_none());
+        assert!(call["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("projectPath"));
         let bad = s
             .handle(&json!({"jsonrpc": "2.0", "id": 3, "method": "nope"}))
             .unwrap();
         assert_eq!(bad["error"]["code"], -32601);
+    }
+
+    fn indexed_project(dir: &Path) -> PathBuf {
+        let root = dir.join("app");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/a.ts"), "export function hello() {}\n").unwrap();
+        let mut cg = CodeGraph::init(&root).unwrap();
+        cg.index_all(None).unwrap();
+        root.canonicalize().unwrap()
+    }
+
+    #[test]
+    fn asks_the_client_for_its_roots() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = indexed_project(dir.path());
+        let mut s = Server::new(None, false);
+        s.handle(&json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"capabilities": {"roots": {}}}}));
+        let tools = s
+            .handle(&json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}))
+            .unwrap();
+        let required = &tools["result"]["tools"][0]["inputSchema"]["required"];
+        assert!(required.as_array().unwrap().contains(&json!("projectPath")));
+        s.handle(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+        let request = s.outbox.pop().unwrap();
+        assert_eq!(request["method"], "roots/list");
+        let uri = format!("file://{}", root.display()).replace(' ', "%20");
+        assert!(s
+            .handle(
+                &json!({"jsonrpc": "2.0", "id": request["id"], "result": {"roots": [{"uri": uri}]}})
+            )
+            .is_none());
+        assert_eq!(s.default_root.as_deref(), Some(root.as_path()));
+        let tools = s
+            .handle(&json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list"}))
+            .unwrap();
+        assert!(tools["result"]["tools"][0]["inputSchema"]["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r != "projectPath"));
+    }
+
+    #[test]
+    fn adopts_a_single_indexed_subproject() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = indexed_project(dir.path());
+        std::fs::write(dir.path().join("package.json"), "{}").unwrap();
+        let found = scan_subprojects(dir.path());
+        assert_eq!(
+            found
+                .iter()
+                .map(|p| p.canonicalize().unwrap())
+                .collect::<Vec<_>>(),
+            vec![root.clone()]
+        );
+        let s = Server::new(None, false).with_subprojects(found);
+        assert!(s.default_root.is_some());
+        // Not a workspace: no scan.
+        let bare = tempfile::tempdir().unwrap();
+        assert!(scan_subprojects(bare.path()).is_empty());
+    }
+
+    #[test]
+    fn nested_repositories_are_not_answered_by_the_ancestor() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = indexed_project(dir.path());
+        let nested = root.join("vendor-repo");
+        std::fs::create_dir_all(nested.join(".git")).unwrap();
+        let mut s = Server::new(Some(root.clone()), false);
+        let out = s.call_tool(
+            "codegraph_status",
+            &json!({ "projectPath": nested.to_string_lossy() }),
+        );
+        let text = out["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("separate repository"), "{text}");
+        let ok = s.call_tool(
+            "codegraph_status",
+            &json!({ "projectPath": root.join("src").to_string_lossy() }),
+        );
+        assert!(!ok["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("separate repository"));
+    }
+
+    #[test]
+    fn uris_and_path_filters() {
+        assert_eq!(
+            file_uri_path("file:///home/me/my%20app").unwrap(),
+            PathBuf::from("/home/me/my app")
+        );
+        assert_eq!(
+            file_uri_path("file:///C:/work").unwrap(),
+            PathBuf::from("C:/work")
+        );
+        assert!(file_uri_path("https://x").is_none());
+        let root = Path::new("/p/proj");
+        for whole in ["/", ".", "./", ""] {
+            assert_eq!(normalize_dir_filter(whole, root), None, "{whole}");
+        }
+        assert_eq!(normalize_dir_filter("./src/", root).as_deref(), Some("src"));
+        assert_eq!(
+            normalize_dir_filter("src\\a", root).as_deref(),
+            Some("src/a")
+        );
+        assert_eq!(
+            normalize_dir_filter("/p/proj/src", root).as_deref(),
+            Some("src")
+        );
     }
 }

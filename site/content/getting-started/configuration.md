@@ -34,6 +34,8 @@ Invalid entries are dropped with a warning in `codegraph status`; the rest of th
 | `CODEGRAPH_MCP_TOOLS` | Which MCP tools are listed: `all`, or a comma list such as `explore,search`. The default lists only `codegraph_explore`. |
 | `CODEGRAPH_NO_DAEMON=1` | Serve MCP in-process instead of through the [shared daemon](/guides/daemon/). |
 | `CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS` | How long a daemon stays up without clients (default 300000). |
+| `CODEGRAPH_WATCH_DEBOUNCE_MS` | How long the file watcher waits after the last change before syncing, 100–60000 (default 800). |
+| `CODEGRAPH_STARTUP_HANDSHAKE_TIMEOUT_MS` | How long `serve --mcp` waits for its first message before exiting (default 900000; `0` disables). |
 | `CODEGRAPH_EXPLORE_DEDUP=1` | Let `codegraph_explore` skip source a session was already shown. |
 | `CODEGRAPH_NO_UPDATE_CHECK=1` | Turn off the daily release check. |
 | `CODEGRAPH_TELEMETRY=0`, `DO_NOT_TRACK=1` | Turn off [telemetry](/reference/telemetry/). |
