@@ -18,7 +18,25 @@ codegraph explore "how does login reach the session store"
 codegraph status
 ```
 
-Wire it into an agent as a stdio MCP server:
+Register it with your coding agents:
+
+```bash
+codegraph install                 # prompts for location and agents
+codegraph install --yes           # global config, every detected agent
+codegraph install --target claude,cursor --location local
+codegraph install --print-config codex   # just show the snippet
+codegraph uninstall --yes
+```
+
+Supported agents: Claude Code, Cursor, Codex CLI, opencode, Gemini CLI, Kiro,
+Antigravity, Hermes Agent, and GitHub Copilot (VS Code, CLI, JetBrains). The
+installer edits only CodeGraph's own entry (comments and other settings in
+your config files are preserved), adds a short marked instructions block for
+agents that read one (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`), and pre-allows
+the `mcp__codegraph__*` tools for Claude Code unless `--no-permissions`.
+Re-running is a no-op; `uninstall` reverses it.
+
+Or wire it by hand as a stdio MCP server:
 
 ```json
 { "mcpServers": { "codegraph": { "command": "codegraph", "args": ["serve", "--mcp"] } } }
@@ -46,6 +64,7 @@ after you stop typing.
 | `files` | Indexed file tree (`--format tree\|flat\|grouped`) |
 | `watch [path]` | Keep the index in sync until interrupted |
 | `serve --mcp` | MCP server on stdio |
+| `install` / `uninstall` | Register CodeGraph with coding agents, or remove it |
 
 ## MCP tools
 

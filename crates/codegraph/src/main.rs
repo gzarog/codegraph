@@ -1,6 +1,7 @@
 use anyhow::{bail, Context as _, Result};
 use clap::{Args, Parser, Subcommand};
 use codegraph::format::{self, FilesFormat};
+use codegraph::installer::{self, Env, Location, Target};
 use codegraph::project::{unsafe_root_reason, CodeGraph};
 use codegraph::{ContextFormat, ContextOptions, Progress};
 use codegraph_core::search::is_test_path;
@@ -190,8 +191,153 @@ enum Command {
         #[arg(long)]
         no_watch: bool,
     },
+    /// Register the MCP server with your coding agents
+    Install {
+        /// Agent ids (comma-separated), or auto (detected), all, none
+        #[arg(short, long)]
+        target: Option<String>,
+        /// global (your user config) or local (this project)
+        #[arg(short, long)]
+        location: Option<String>,
+        /// Non-interactive: global location, detected agents
+        #[arg(short, long)]
+        yes: bool,
+        /// Also index the current directory
+        #[arg(short, long)]
+        init: bool,
+        /// Don't pre-allow the codegraph tools (Claude Code)
+        #[arg(long)]
+        no_permissions: bool,
+        /// Print the config snippet for one agent and exit
+        #[arg(long, value_name = "ID")]
+        print_config: Option<String>,
+    },
+    /// Remove CodeGraph from your coding agents' configuration
+    Uninstall {
+        #[arg(short, long)]
+        target: Option<String>,
+        #[arg(short, long)]
+        location: Option<String>,
+        #[arg(short, long)]
+        yes: bool,
+    },
     /// Print the version
     Version,
+}
+
+fn prompt(question: &str, default: &str) -> String {
+    if !std::io::stdin().is_terminal() {
+        return default.to_string();
+    }
+    eprint!("{question} [{default}]: ");
+    let _ = std::io::stderr().flush();
+    let mut line = String::new();
+    let _ = std::io::stdin().read_line(&mut line);
+    let t = line.trim();
+    if t.is_empty() {
+        default.to_string()
+    } else {
+        t.to_string()
+    }
+}
+
+/// Resolve `--target` to agent ids for `loc`.
+fn select_targets(
+    spec: Option<&str>,
+    loc: Location,
+    env: &Env,
+    yes: bool,
+    installing: bool,
+) -> Result<Vec<Target>> {
+    let all = installer::targets();
+    let supported: Vec<&Target> = all.iter().filter(|t| t.supports(loc)).collect();
+    let detected: Vec<&str> = supported
+        .iter()
+        .filter(|t| {
+            if installing {
+                t.detected(env, loc)
+            } else {
+                t.is_configured(env, loc)
+            }
+        })
+        .map(|t| t.id)
+        .collect();
+    let spec = match spec {
+        Some(s) => s.to_string(),
+        None if yes => "auto".into(),
+        None => {
+            eprintln!(
+                "Agents: {}",
+                supported
+                    .iter()
+                    .map(|t| format!("{} ({})", t.id, t.display_name))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            let default = if detected.is_empty() {
+                "none".to_string()
+            } else {
+                detected.join(",")
+            };
+            prompt(
+                if installing {
+                    "Install for which agents"
+                } else {
+                    "Remove from which agents"
+                },
+                &default,
+            )
+        }
+    };
+    let ids: Vec<String> = match spec.as_str() {
+        "auto" => detected.iter().map(|s| s.to_string()).collect(),
+        "all" => supported.iter().map(|t| t.id.to_string()).collect(),
+        "none" => vec![],
+        list => list
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+    };
+    let mut out = Vec::new();
+    for id in ids {
+        match installer::target(&id) {
+            Some(t) if t.supports(loc) => out.push(t),
+            Some(t) => eprintln!(
+                "{} doesn't support a {} install; skipped.",
+                t.display_name,
+                if loc == Location::Local {
+                    "local"
+                } else {
+                    "global"
+                }
+            ),
+            None => bail!(
+                "unknown agent `{id}` (known: {})",
+                all.iter().map(|t| t.id).collect::<Vec<_>>().join(", ")
+            ),
+        }
+    }
+    Ok(out)
+}
+
+fn resolve_location(spec: Option<&str>, yes: bool) -> Result<Location> {
+    let s = match spec {
+        Some(s) => s.to_string(),
+        None if yes => "global".into(),
+        None => prompt("Install location (global/local)", "global"),
+    };
+    s.parse().map_err(|e: String| anyhow::anyhow!(e))
+}
+
+fn print_outcome(name: &str, o: &installer::Outcome) {
+    println!("{name}:");
+    for f in &o.files {
+        println!("  {:<9} {}", f.action.as_str(), f.path.display());
+    }
+    for n in &o.notes {
+        println!("  note: {n}");
+    }
 }
 
 #[derive(Args)]
@@ -606,12 +752,69 @@ fn run(cli: Cli) -> Result<()> {
             let root = path.path.unwrap_or_else(cwd);
             codegraph::mcp::serve_stdio(Some(&root), !no_watch)?;
         }
+        Command::Install {
+            target,
+            location,
+            yes,
+            init,
+            no_permissions,
+            print_config,
+        } => {
+            let env = Env::current();
+            if let Some(id) = print_config {
+                let t = installer::target(&id).with_context(|| format!("unknown agent `{id}`"))?;
+                let loc = match location.as_deref() {
+                    Some(l) => l.parse().map_err(|e: String| anyhow::anyhow!(e))?,
+                    None => Location::Global,
+                };
+                print!("{}", t.print_config(&env, loc));
+                return Ok(());
+            }
+            let loc = resolve_location(location.as_deref(), yes)?;
+            let targets = select_targets(target.as_deref(), loc, &env, yes, true)?;
+            if targets.is_empty() {
+                println!("No agents selected. Pass --target (e.g. --target claude,cursor) or --target all.");
+            }
+            for t in &targets {
+                let o = t.install(&env, loc, !no_permissions)?;
+                print_outcome(t.display_name, &o);
+            }
+            if !targets.is_empty() {
+                println!("Restart your agent(s) to load CodeGraph. Index a project with `codegraph init`.");
+            }
+            if init {
+                let mut cg = CodeGraph::init(&cwd())?;
+                let report = cg.index_all(Some(&progress_printer(false)))?;
+                print_report(&report, "Indexed");
+            }
+        }
+        Command::Uninstall {
+            target,
+            location,
+            yes,
+        } => {
+            let env = Env::current();
+            let loc = resolve_location(location.as_deref(), yes)?;
+            let targets = select_targets(target.as_deref(), loc, &env, yes, false)?;
+            if targets.is_empty() {
+                println!("CodeGraph isn't configured for any agent at that location.");
+            }
+            for t in &targets {
+                let o = t.uninstall(&env, loc)?;
+                print_outcome(t.display_name, &o);
+            }
+        }
         Command::Version => println!("codegraph {}", env!("CARGO_PKG_VERSION")),
     }
     Ok(())
 }
 
 fn main() {
+    // Exit quietly when stdout is closed early (`codegraph files | head`).
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     if let Err(e) = run(Cli::parse()) {
         eprintln!("error: {e:#}");
         std::process::exit(1);
