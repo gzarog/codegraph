@@ -243,3 +243,76 @@ fn dynamic_dispatch_is_joined() {
     let pending = store.count_refs(RefStatus::Pending).unwrap();
     assert_eq!(pending, 0);
 }
+
+#[test]
+fn lite_languages_resolve_across_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(
+        root,
+        "infra/variables.tf",
+        "variable \"region\" {\n  default = \"eu\"\n}\n",
+    );
+    write(
+        root,
+        "infra/main.tf",
+        "provider \"aws\" {\n  region = var.region\n}\nresource \"aws_s3_bucket\" \"logs\" {}\noutput \"arn\" {\n  value = aws_s3_bucket.logs.arn\n}\n",
+    );
+    write(
+        root,
+        "sol/Base.sol",
+        "contract Base {\n  function ping() public {}\n}\n",
+    );
+    write(
+        root,
+        "sol/Token.sol",
+        "import \"./Base.sol\";\ncontract Token is Base {\n  function run() public { ping(); }\n}\n",
+    );
+    write(root, "vb/Util.vb", "Public Module Util\n    Public Function Twice(x As Integer) As Integer\n        Return x * 2\n    End Function\nEnd Module\n");
+    write(
+        root,
+        "vb/App.vb",
+        "Public Class App\n    Public Sub Main()\n        twice(2)\n    End Sub\nEnd Class\n",
+    );
+    write(
+        root,
+        "erl/math2.erl",
+        "-module(math2).\n-export([sq/1]).\nsq(X) -> X * X.\n",
+    );
+    write(
+        root,
+        "erl/app.erl",
+        "-module(app).\nrun() -> math2:sq(3).\n",
+    );
+
+    let mut store = Store::open_in_memory().unwrap();
+    index_project(
+        &mut store,
+        root,
+        &ProjectConfig::default(),
+        &IndexOptions::default(),
+    )
+    .unwrap();
+    let file_refs = |from: &str, to: &str, kind: EdgeKind| edge_exists(&store, from, to, kind);
+    assert!(
+        file_refs("arn", "logs", EdgeKind::References),
+        "terraform resource ref"
+    );
+    assert!(
+        file_refs("main.tf", "region", EdgeKind::References),
+        "terraform var across files"
+    );
+    assert!(
+        file_refs("Token", "Base", EdgeKind::Extends),
+        "solidity inheritance"
+    );
+    assert!(file_refs("run", "ping", EdgeKind::Calls), "inherited call");
+    assert!(
+        file_refs("Main", "Twice", EdgeKind::Calls),
+        "VB is case-insensitive"
+    );
+    assert!(
+        file_refs("run", "sq", EdgeKind::Calls),
+        "erlang remote call"
+    );
+}

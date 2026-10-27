@@ -37,6 +37,7 @@ mod ids;
 mod java;
 mod kotlin;
 mod langs;
+mod lite;
 mod lua;
 mod php;
 mod python;
@@ -82,6 +83,7 @@ pub fn supports(language: Language) -> bool {
                 | Language::Liquid
                 | Language::Razor
         )
+        || lite::supports(language)
 }
 
 /// The C function-pointer facts for one file (see cfnptr.rs).
@@ -99,6 +101,7 @@ pub fn extract_file(file_path: &str, content: &str, language: Language) -> Extra
         Language::ArkTs => return sfc::extract_arkts(file_path, content),
         Language::Liquid => return sfc::extract_liquid(file_path, content),
         Language::Razor => return sfc::extract_razor(file_path, content),
+        l if lite::supports(l) => return lite::extract(file_path, content, l),
         _ => {}
     }
     let started = std::time::Instant::now();
