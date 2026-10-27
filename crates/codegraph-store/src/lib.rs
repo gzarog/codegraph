@@ -721,6 +721,45 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// `(source file, target file, edge count)` for every pair of distinct
+    /// files linked by a non-structural edge.
+    pub fn file_dependency_counts(&self) -> Result<Vec<(String, String, u64)>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT s.file_path, t.file_path, count(*) FROM edges e
+               JOIN nodes s ON s.id = e.source
+               JOIN nodes t ON t.id = e.target
+              WHERE e.kind != 'contains' AND s.file_path != t.file_path
+              GROUP BY s.file_path, t.file_path",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? as u64))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The symbols with the most incoming edges of `kinds`, with the count.
+    pub fn most_referenced(&self, kinds: &[EdgeKind], limit: usize) -> Result<Vec<(Node, u64)>> {
+        let kinds: Vec<&str> = kinds.iter().map(|k| k.as_str()).collect();
+        let sql = format!(
+            "SELECT target, count(DISTINCT source) AS n FROM edges
+              WHERE kind IN ({}) GROUP BY target ORDER BY n DESC LIMIT {limit}",
+            placeholders(kinds.len())
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows: Vec<(String, i64)> = stmt
+            .query_map(params_from_iter(kinds), |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut out = Vec::new();
+        for (id, n) in rows {
+            if let Some(node) = self.node(&id)? {
+                if node.kind != NodeKind::File {
+                    out.push((node, n as u64));
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// Non-file symbols with no incoming edge other than `contains`.
     pub fn unreferenced_nodes(&self, kinds: &[NodeKind], limit: usize) -> Result<Vec<Node>> {
         let kinds: Vec<&str> = kinds.iter().map(|k| k.as_str()).collect();

@@ -158,6 +158,7 @@ dependencies = [
  "codegraph-core",
  "codegraph-extract",
  "codegraph-graph",
+ "codegraph-http",
  "codegraph-index",
  "codegraph-resolve",
  "codegraph-store",
@@ -307,6 +308,13 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+]
+
+[[package]]
+name = "codegraph-viewer"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

@@ -316,3 +316,48 @@ fn lite_languages_resolve_across_files() {
         "erlang remote call"
     );
 }
+
+#[test]
+fn rust_crate_paths_and_shadowing_enum_variants() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(
+        root,
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"a\", \"b\"]\n",
+    );
+    write(root, "a/Cargo.toml", "[package]\nname = \"crate-a\"\n");
+    write(
+        root,
+        "a/src/lib.rs",
+        "pub struct Store;\npub fn run_all(s: &Store) {}\n",
+    );
+    write(root, "b/Cargo.toml", "[package]\nname = \"crate-b\"\n");
+    write(
+        root,
+        "b/src/lib.rs",
+        "use crate_a::Store;\npub enum Error {\n    Store(String),\n}\npub fn go(s: &Store) {\n    crate_a::run_all(s);\n}\n",
+    );
+    let mut store = Store::open_in_memory().unwrap();
+    index_project(
+        &mut store,
+        root,
+        &ProjectConfig::default(),
+        &IndexOptions::default(),
+    )
+    .unwrap();
+    assert!(
+        edge_exists(&store, "go", "run_all", EdgeKind::Calls),
+        "crate path call"
+    );
+    let go = &store.nodes_named("go").unwrap()[0];
+    let targets: Vec<String> = store
+        .outgoing_edges(&go.id, &[])
+        .unwrap()
+        .iter()
+        .filter_map(|e| store.node(&e.target).unwrap())
+        .filter(|n| n.name == "Store")
+        .map(|n| n.kind.as_str().to_string())
+        .collect();
+    assert!(!targets.contains(&"enum_member".to_string()), "{targets:?}");
+}

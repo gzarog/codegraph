@@ -15,6 +15,7 @@ codegraph-core.workspace = true
 codegraph-extract.workspace = true
 codegraph-store.workspace = true
 codegraph-telemetry.workspace = true
+codegraph-http.workspace = true
 codegraph-index.workspace = true
 codegraph-resolve.workspace = true
 codegraph-graph.workspace = true

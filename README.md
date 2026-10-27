@@ -70,6 +70,7 @@ turns that off).
 | `files` | Indexed file tree (`--format tree\|flat\|grouped`) |
 | `watch [path]` | Keep the index in sync until interrupted |
 | `serve --mcp` | MCP server on stdio |
+| `ui [--port N] [--no-open]` | Browser viewer on 127.0.0.1: symbol pages with callers/callees and blast radius, file outlines, a module map, call-path flows, routes, dead code and saved trails |
 | `install` / `uninstall` | Register CodeGraph with coding agents, or remove it |
 | `upgrade [--check] [--version vX.Y.Z]` | Install the latest release (or `cargo install` for source installs) |
 | `telemetry [on\|off\|status]` | Anonymous usage statistics; nothing is sent unless an endpoint is configured ([TELEMETRY.md](TELEMETRY.md)) |
@@ -140,11 +141,16 @@ data directory.
 | `codegraph-telemetry` | Telemetry allowlist, self-hosted ingest server and dashboard |
 | `codegraph-graph` | Callers/callees, impact, paths, type hierarchy, dead code |
 | `codegraph-context` | Relevance ranking, `explore` and task context |
+| `codegraph-viewer` | The `codegraph ui` app: Rust compiled to WebAssembly (virtual DOM, routing, highlighting, graph layout) behind a small JS bridge |
 | `codegraph` | Project facade, CLI binary and MCP server |
 
 ```bash
+rustup target add wasm32-unknown-unknown   # the viewer is built into the binary
 cargo test --workspace
 ```
+
+Without the wasm target the binary still builds; `codegraph ui` then says the
+viewer is missing. `CODEGRAPH_SKIP_VIEWER=1` skips the viewer build on purpose.
 
 ## License
 

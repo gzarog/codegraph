@@ -37,3 +37,7 @@ tree-sitter = "0.25"
 lto = true
 codegen-units = 1
 strip = "symbols"
+
+# The viewer ships inside the binary: optimize it for size.
+[profile.release.package.codegraph-viewer]
+opt-level = "s"

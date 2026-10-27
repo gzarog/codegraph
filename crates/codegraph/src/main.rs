@@ -236,6 +236,17 @@ enum Command {
     /// Claude Code UserPromptSubmit hook (reads {prompt, cwd} JSON on stdin)
     #[command(hide = true)]
     PromptHook,
+    /// Open the browser viewer for this project (served on 127.0.0.1)
+    Ui {
+        #[command(flatten)]
+        path: PathOpt,
+        /// Port to listen on (default: a free one)
+        #[arg(long, default_value_t = 0)]
+        port: u16,
+        /// Don't open a browser
+        #[arg(long)]
+        no_open: bool,
+    },
     /// Upgrade codegraph to the latest release
     Upgrade {
         /// Only report whether a newer release exists
@@ -283,6 +294,7 @@ impl Command {
             Command::Install { .. } => "install",
             Command::Uninstall { .. } => "uninstall",
             Command::PromptHook => "prompt-hook",
+            Command::Ui { .. } => "ui",
             Command::Upgrade { .. } => "upgrade",
             Command::Telemetry { .. } => "telemetry",
             Command::Version => "version",
@@ -958,6 +970,30 @@ fn run(cli: Cli) -> Result<()> {
                 print!("{text}");
             }
         }
+        Command::Ui {
+            path,
+            port,
+            no_open,
+        } => {
+            let cg = open(path.path.as_deref())?;
+            if !codegraph::ui::viewer_built() {
+                eprintln!("This build has no browser viewer (the wasm32-unknown-unknown target was missing when it was built).");
+            }
+            // Counted now: the server runs until interrupted.
+            codegraph::telemetry::record_usage(
+                codegraph::telemetry::UsageKind::CliCommand,
+                "ui",
+                false,
+                None,
+            );
+            codegraph::telemetry::flush();
+            codegraph::ui::serve(cg, port, |url| {
+                println!("CodeGraph viewer: {url}  (Ctrl-C to stop)");
+                if !no_open && !codegraph::ui::open_browser(url) {
+                    println!("Open that address in your browser.");
+                }
+            })?;
+        }
         Command::Upgrade {
             check,
             version,
@@ -1013,7 +1049,7 @@ fn main() {
     let cli = Cli::parse();
     let name = cli.command.name();
     // The MCP server counts its own tool calls; `telemetry` itself is never counted.
-    let counted = !matches!(name, "serve" | "telemetry");
+    let counted = !matches!(name, "serve" | "telemetry" | "ui");
     let result = run(cli);
     if counted {
         codegraph::telemetry::record_usage(

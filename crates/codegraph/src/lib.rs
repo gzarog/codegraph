@@ -10,6 +10,7 @@ pub mod mcp;
 pub mod project;
 pub mod prompt;
 pub mod telemetry;
+pub mod ui;
 pub mod upgrade;
 pub mod watch;
 

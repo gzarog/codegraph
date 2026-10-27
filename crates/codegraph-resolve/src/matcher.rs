@@ -88,6 +88,17 @@ fn kind_accepts(kind: ReferenceKind, target: NodeKind) -> bool {
     }
 }
 
+/// Whether a bare name reaches a symbol of this kind from outside its type
+/// (members of the enclosing type are found separately). Enum constants are
+/// bare names only in C-family languages.
+fn bare_reachable(kind: NodeKind, lang: Language) -> bool {
+    match kind {
+        NodeKind::Field | NodeKind::Property | NodeKind::Method => false,
+        NodeKind::EnumMember => matches!(lang, Language::C | Language::Cpp | Language::ObjC),
+        _ => true,
+    }
+}
+
 /// Preference among acceptable targets (higher first).
 fn kind_rank(kind: ReferenceKind, target: NodeKind) -> u8 {
     use NodeKind as N;
@@ -592,6 +603,7 @@ impl<'a> Matcher<'a> {
                 (s.name == name
                     || crate::symbols::case_insensitive(lang) && s.name.eq_ignore_ascii_case(name))
                     && kind_accepts(kind, s.kind)
+                    && bare_reachable(s.kind, lang)
                     && self.syms.visible_from(i, from)
             })
             .max_by_key(|&i| {
@@ -850,6 +862,22 @@ impl<'a> Matcher<'a> {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // A Rust module path (`other_crate::f`, `crate::util::g`, `super::h`):
+        // every segment before the item is a lower-case module name.
+        if lang == Language::Rust
+            && full.contains("::")
+            && head
+                .split("::")
+                .all(|seg| seg.starts_with(|c: char| c.is_ascii_lowercase() || c == '_'))
+        {
+            let files = self.modules.resolve(self.syms, file, lang, head);
+            for f in &files {
+                if let Some(t) = self.find_export(f, tail, lang, 1) {
+                    return Some(Match::new(t, "module-path", 0.9));
                 }
             }
         }
