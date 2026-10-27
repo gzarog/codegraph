@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 pub mod language;
+pub mod search;
 pub use language::{detect_language, is_source_file, Language};
 
 macro_rules! string_enum {
