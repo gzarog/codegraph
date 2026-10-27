@@ -23,11 +23,17 @@ re!(pascal_case, r"^[A-Z]");
 // extractCall parenthesized-conversion normalization
 re!(paren_conversion, r"^\(\s*\*?\s*([A-Za-z_][\w.]*)\s*\)$");
 // tsJsCalleeName's dotted chain (`a.b.c`); ASCII classes, as JS's `\w` is
-re!(dotted_chain, r"^[A-Za-z_$][0-9A-Za-z_$]*(?:\.[A-Za-z_$][0-9A-Za-z_$]*)+$");
+re!(
+    dotted_chain,
+    r"^[A-Za-z_$][0-9A-Za-z_$]*(?:\.[A-Za-z_$][0-9A-Za-z_$]*)+$"
+);
 // flushFnRefCandidates SIMPLE_NAME
 re!(simple_name, r"^[A-Za-z_$][A-Za-z0-9_$]*$");
 // flushFnRefCandidates QUALIFIED_IMPORT
-re!(qualified_import, r"^[A-Za-z_$][A-Za-z0-9_$.\\]*[.\\]([A-Za-z_$][A-Za-z0-9_$]*)$");
+re!(
+    qualified_import,
+    r"^[A-Za-z_$][A-Za-z0-9_$.\\]*[.\\]([A-Za-z_$][A-Za-z0-9_$]*)$"
+);
 // captureFnRefCandidates rhs param-storage skip — trailing identifier of LHS
 re!(lhs_last_name, r"([A-Za-z_$][A-Za-z0-9_$]*)\s*$");
 // extractTsTupleContractNames identifier test
@@ -81,7 +87,10 @@ pub fn is_generated_file(file_path: &str) -> bool {
 }
 
 // isMinifiedContent's WEBPACK_RUNTIME (`\b` ASCII, as in JS).
-re!(webpack_runtime, r"(?-u:\b)function __webpack_require__\s*\(");
+re!(
+    webpack_runtime,
+    r"(?-u:\b)function __webpack_require__\s*\("
+);
 
 /// isMinifiedContent (src/extraction/generated-detection.ts): a `.js` / `.mjs`
 /// / `.cjs` file of at least 4000 UTF-16 units whose text sits mostly on lines

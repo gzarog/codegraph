@@ -1,5 +1,8 @@
 use super::*;
-use codegraph_core::{now_ms, Edge, EdgeKind, FileRecord, Language, Node, NodeKind, ReferenceKind, UnresolvedReference};
+use codegraph_core::{
+    now_ms, Edge, EdgeKind, FileRecord, Language, Node, NodeKind, ReferenceKind,
+    UnresolvedReference,
+};
 
 fn file(path: &str) -> FileRecord {
     FileRecord {
@@ -51,7 +54,9 @@ fn two_files(store: &mut Store) {
         edges: vec![Edge::new("file:b.ts", "fn:parse", EdgeKind::Contains)],
         ..Default::default()
     };
-    store.store_files(&[(file("a.ts"), a), (file("b.ts"), b)]).unwrap();
+    store
+        .store_files(&[(file("a.ts"), a), (file("b.ts"), b)])
+        .unwrap();
 }
 
 #[test]
@@ -75,14 +80,26 @@ fn resolution_and_reindex_reopen() {
     let pending = s.pending_refs_after(0, 100).unwrap();
     let r = &pending[0];
     let edge = Edge::new(&r.from_node_id, "fn:parse", EdgeKind::Calls);
-    s.apply_resolutions(&[(r.row_id.unwrap(), edge, "b.ts".into())], &[]).unwrap();
-    assert_eq!(s.incoming_edges("fn:parse", &[EdgeKind::Calls]).unwrap().len(), 1);
+    s.apply_resolutions(&[(r.row_id.unwrap(), edge, "b.ts".into())], &[])
+        .unwrap();
+    assert_eq!(
+        s.incoming_edges("fn:parse", &[EdgeKind::Calls])
+            .unwrap()
+            .len(),
+        1
+    );
     assert_eq!(s.count_refs(RefStatus::Resolved).unwrap(), 1);
     assert_eq!(s.dependent_files("b.ts").unwrap(), vec!["a.ts".to_string()]);
 
     // Re-indexing b.ts drops the edge into it and reopens the reference.
     let b = ExtractionResult {
-        nodes: vec![node("fn:parse2", NodeKind::Function, "parseConfig", "b.ts", 7)],
+        nodes: vec![node(
+            "fn:parse2",
+            NodeKind::Function,
+            "parseConfig",
+            "b.ts",
+            7,
+        )],
         ..Default::default()
     };
     s.store_file(&file("b.ts"), &b).unwrap();
@@ -105,13 +122,21 @@ fn failed_refs_reopen_by_tail() {
 fn search_ranks_exact_names() {
     let mut s = Store::open_in_memory().unwrap();
     two_files(&mut s);
-    let hits = s.search_nodes("parseConfig", &SearchOptions::default()).unwrap();
+    let hits = s
+        .search_nodes("parseConfig", &SearchOptions::default())
+        .unwrap();
     assert_eq!(hits[0].node.id, "fn:parse");
-    let fuzzy = s.search_nodes("parseConfg", &SearchOptions::default()).unwrap();
+    let fuzzy = s
+        .search_nodes("parseConfg", &SearchOptions::default())
+        .unwrap();
     assert_eq!(fuzzy[0].node.name, "parseConfig");
-    let filtered = s.search_nodes("kind:file", &SearchOptions::default()).unwrap();
+    let filtered = s
+        .search_nodes("kind:file", &SearchOptions::default())
+        .unwrap();
     assert!(filtered.iter().all(|r| r.node.kind == NodeKind::File));
-    let by_path = s.search_nodes("path:b.ts parse", &SearchOptions::default()).unwrap();
+    let by_path = s
+        .search_nodes("path:b.ts parse", &SearchOptions::default())
+        .unwrap();
     assert!(by_path.iter().all(|r| r.node.file_path == "b.ts"));
 }
 
@@ -138,5 +163,8 @@ fn segments() {
     let mut s = Store::open_in_memory().unwrap();
     two_files(&mut s);
     s.rebuild_name_segments().unwrap();
-    assert_eq!(s.names_for_segment("config", 10).unwrap(), vec!["parseConfig".to_string()]);
+    assert_eq!(
+        s.names_for_segment("config", 10).unwrap(),
+        vec!["parseConfig".to_string()]
+    );
 }

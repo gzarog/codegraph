@@ -1,0 +1,18 @@
+[package]
+name = "codegraph-resolve"
+description = "Cross-file reference resolution for CodeGraph"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+codegraph-core.workspace = true
+codegraph-store.workspace = true
+ignore.workspace = true
+regex.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+codegraph-extract.workspace = true
+tempfile = "3"

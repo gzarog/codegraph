@@ -19,7 +19,12 @@ pub struct NestedIntervals<T: Clone> {
 
 impl<T: Clone> NestedIntervals<T> {
     pub fn new() -> Self {
-        NestedIntervals { opens: Vec::new(), closes: Vec::new(), parents: Vec::new(), values: Vec::new() }
+        NestedIntervals {
+            opens: Vec::new(),
+            closes: Vec::new(),
+            parents: Vec::new(),
+            values: Vec::new(),
+        }
     }
 
     /// Adds the interval `(open, close)`. One that opens before the last one
@@ -86,7 +91,9 @@ impl BraceScopes {
 
     /// The 1-based line and the UTF-16 column of `offset`.
     pub fn position_of(src: &str, line_starts: &[usize], offset: usize) -> (u32, u32) {
-        let row = line_starts.partition_point(|&s| s <= offset).saturating_sub(1);
+        let row = line_starts
+            .partition_point(|&s| s <= offset)
+            .saturating_sub(1);
         (row as u32 + 1, util::col16(src, line_starts, row, offset))
     }
 }
@@ -104,14 +111,18 @@ fn at(s: &[u8], i: usize) -> u8 {
     s.get(i).copied().unwrap_or(0)
 }
 fn find(src: &str, from: usize, pat: &str) -> Option<usize> {
-    src.get(from..).and_then(|rest| rest.find(pat)).map(|k| from + k)
+    src.get(from..)
+        .and_then(|rest| rest.find(pat))
+        .map(|k| from + k)
 }
 
 /// The end of a `//` comment starting at `i`: its newline (a `\` before it continues the comment).
 fn line_comment_end(src: &str, mut i: usize) -> usize {
     let s = src.as_bytes();
     loop {
-        let Some(nl) = find(src, i, "\n") else { return s.len() };
+        let Some(nl) = find(src, i, "\n") else {
+            return s.len();
+        };
         let mut k = nl as isize - 1;
         if k >= 0 && s[k as usize] == b'\r' {
             k -= 1;
@@ -160,7 +171,11 @@ fn quoted_end(s: &[u8], i: usize) -> usize {
     while j < s.len() {
         let c = s[j];
         if c == b'\\' {
-            j += if at(s, j + 1) == b'\r' && at(s, j + 2) == b'\n' { 3 } else { 2 };
+            j += if at(s, j + 1) == b'\r' && at(s, j + 2) == b'\n' {
+                3
+            } else {
+                2
+            };
         } else if c == quote {
             return j + 1;
         } else if c == b'\n' {
@@ -230,11 +245,16 @@ fn namespace_head(src: &str, from: usize) -> Option<(String, usize)> {
     if at(s, i) != b'{' {
         return None;
     }
-    Some((name.map_or(String::new(), |(start, end)| src[start..end].to_string()), i))
+    Some((
+        name.map_or(String::new(), |(start, end)| src[start..end].to_string()),
+        i,
+    ))
 }
 
 fn is_raw_delimiter(d: &[u8]) -> bool {
-    d.len() <= 16 && d.iter().all(|&b| (0x21..=0x7e).contains(&b) && !matches!(b, b'"' | b'(' | b')' | b'\\'))
+    d.len() <= 16
+        && d.iter()
+            .all(|&b| (0x21..=0x7e).contains(&b) && !matches!(b, b'"' | b'(' | b')' | b'\\'))
 }
 
 fn is_raw_prefix(w: &[u8]) -> bool {
@@ -312,7 +332,10 @@ pub fn scan(src: &str) -> Option<BraceScopes> {
                 }
             }
             match directive {
-                b"if" | b"ifdef" | b"ifndef" => branches.push(Branch { at_if: open.clone(), after_first: None }),
+                b"if" | b"ifdef" | b"ifndef" => branches.push(Branch {
+                    at_if: open.clone(),
+                    after_first: None,
+                }),
                 b"else" | b"elif" | b"elifdef" | b"elifndef" => {
                     if let Some(group) = branches.last_mut() {
                         let at_if = group.at_if.clone();
@@ -361,7 +384,8 @@ pub fn scan(src: &str) -> Option<BraceScopes> {
                     j += 1;
                 } else if d == b'\'' && is_word_char(at(s, j + 1)) {
                     j += 2;
-                } else if (d == b'+' || d == b'-') && matches!(s[j - 1], b'e' | b'E' | b'p' | b'P') {
+                } else if (d == b'+' || d == b'-') && matches!(s[j - 1], b'e' | b'E' | b'p' | b'P')
+                {
                     j += 1;
                 } else {
                     break;
@@ -386,7 +410,10 @@ pub fn scan(src: &str) -> Option<BraceScopes> {
         }
         if c == b'{' {
             open.push(i);
-            if pending_namespace.as_ref().is_some_and(|(_, brace)| *brace == i) {
+            if pending_namespace
+                .as_ref()
+                .is_some_and(|(_, brace)| *brace == i)
+            {
                 let (name, _) = pending_namespace.take().unwrap();
                 if !name.is_empty() {
                     namespace_at.push((i, name));

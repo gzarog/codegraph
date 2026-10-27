@@ -24,15 +24,22 @@ const MAX_VALUE_REF_NODES: usize = 20_000;
 
 // Keep body-docstring selection and cleaning in sync with languages/python.ts.
 fn body_docstring(node: Node, src: &str) -> Option<String> {
-    let body = if node.kind() == "module" { node } else { node.child_by_field_name("body")? };
+    let body = if node.kind() == "module" {
+        node
+    } else {
+        node.child_by_field_name("body")?
+    };
     let first = (0..body.named_child_count())
         .filter_map(|i| body.named_child(i))
         .find(|c| c.kind() != "comment")?;
     if first.kind() != "expression_statement" {
         return None;
     }
-    if first.named_child_count() != 1 || (0..first.child_count())
-        .filter_map(|i| first.child(i)).any(|c| c.kind() == ",") {
+    if first.named_child_count() != 1
+        || (0..first.child_count())
+            .filter_map(|i| first.child(i))
+            .any(|c| c.kind() == ",")
+    {
         return None;
     }
     let mut literal = first.named_child(0)?;
@@ -42,8 +49,10 @@ fn body_docstring(node: Node, src: &str) -> Option<String> {
             .find(|c| c.kind() != "comment")?;
     }
     let strings = if literal.kind() == "concatenated_string" {
-        (0..literal.named_child_count()).filter_map(|i| literal.named_child(i))
-            .filter(|c| c.kind() != "comment").collect::<Vec<_>>()
+        (0..literal.named_child_count())
+            .filter_map(|i| literal.named_child(i))
+            .filter(|c| c.kind() != "comment")
+            .collect::<Vec<_>>()
     } else {
         vec![literal]
     };
@@ -52,23 +61,36 @@ fn body_docstring(node: Node, src: &str) -> Option<String> {
         if string.kind() != "string" {
             return None;
         }
-        let start = (0..string.named_child_count()).filter_map(|i| string.named_child(i))
+        let start = (0..string.named_child_count())
+            .filter_map(|i| string.named_child(i))
             .find(|c| c.kind() == "string_start")?;
-        if src[start.byte_range()].bytes().any(|b| matches!(b, b'b' | b'B' | b'f' | b'F')) {
+        if src[start.byte_range()]
+            .bytes()
+            .any(|b| matches!(b, b'b' | b'B' | b'f' | b'F'))
+        {
             return None;
         }
-        if !(0..string.named_child_count()).filter_map(|i| string.named_child(i))
-            .any(|c| c.kind() == "string_end") {
+        if !(0..string.named_child_count())
+            .filter_map(|i| string.named_child(i))
+            .any(|c| c.kind() == "string_end")
+        {
             return None;
         }
         for i in 0..string.named_child_count() {
-            if let Some(content) = string.named_child(i).filter(|c| c.kind() == "string_content") {
+            if let Some(content) = string
+                .named_child(i)
+                .filter(|c| c.kind() == "string_content")
+            {
                 raw.push_str(&src[content.byte_range()]);
             }
         }
     }
     let cleaned = dedent_docstring(&raw);
-    if cleaned.is_empty() { None } else { Some(cleaned) }
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned)
+    }
 }
 
 fn docstring_space(c: char) -> bool {
@@ -78,25 +100,53 @@ fn docstring_space(c: char) -> bool {
 
 fn dedent_docstring(raw: &str) -> String {
     let normalized = raw.replace("\r\n", "\n").replace('\r', "\n");
-    let lines: Vec<String> = normalized.split('\n').map(|line| {
-        let mut column = 0;
-        let mut expanded = String::new();
-        for c in line.chars() {
-            let width = if c == '\t' { 8 - column % 8 } else { 1 };
-            column += width;
-            if c == '\t' { expanded.push_str(&" ".repeat(width)); } else { expanded.push(c); }
-        }
-        expanded
-    }).collect();
-    let indent = lines.iter().skip(1).filter(|l| !l.trim_matches(docstring_space).is_empty())
-        .map(|l| l.chars().take_while(|c| docstring_space(*c)).count()).min().unwrap_or(0);
-    let out: Vec<String> = lines.iter().enumerate().map(|(i, l)| {
-        if i == 0 { l.trim_matches(docstring_space).to_string() } else {
-            l.chars().skip(indent).collect::<String>().trim_end_matches(docstring_space).to_string()
-        }
-    }).collect();
-    let start = out.iter().position(|l| !l.trim_matches(docstring_space).is_empty()).unwrap_or(out.len());
-    let end = out.iter().rposition(|l| !l.trim_matches(docstring_space).is_empty()).map_or(start, |i| i + 1);
+    let lines: Vec<String> = normalized
+        .split('\n')
+        .map(|line| {
+            let mut column = 0;
+            let mut expanded = String::new();
+            for c in line.chars() {
+                let width = if c == '\t' { 8 - column % 8 } else { 1 };
+                column += width;
+                if c == '\t' {
+                    expanded.push_str(&" ".repeat(width));
+                } else {
+                    expanded.push(c);
+                }
+            }
+            expanded
+        })
+        .collect();
+    let indent = lines
+        .iter()
+        .skip(1)
+        .filter(|l| !l.trim_matches(docstring_space).is_empty())
+        .map(|l| l.chars().take_while(|c| docstring_space(*c)).count())
+        .min()
+        .unwrap_or(0);
+    let out: Vec<String> = lines
+        .iter()
+        .enumerate()
+        .map(|(i, l)| {
+            if i == 0 {
+                l.trim_matches(docstring_space).to_string()
+            } else {
+                l.chars()
+                    .skip(indent)
+                    .collect::<String>()
+                    .trim_end_matches(docstring_space)
+                    .to_string()
+            }
+        })
+        .collect();
+    let start = out
+        .iter()
+        .position(|l| !l.trim_matches(docstring_space).is_empty())
+        .unwrap_or(out.len());
+    let end = out
+        .iter()
+        .rposition(|l| !l.trim_matches(docstring_space).is_empty())
+        .map_or(start, |i| i + 1);
     out[start..end].join("\n")
 }
 
@@ -194,7 +244,8 @@ pub fn extract(file_path: &str, source: &str) -> Result<EmitOut, String> {
     let name_ref = w.arena.put(base_name);
     let qn_ref = w.arena.put(file_path);
     let docstring = body_docstring(tree.root_node(), source)
-        .map(|doc| w.arena.put(&doc)).unwrap_or(NONE_STR);
+        .map(|doc| w.arena.put(&doc))
+        .unwrap_or(NONE_STR);
     w.tables.push_node(&NodeRow {
         kind: node_kind_index("file").unwrap(),
         visibility: 0,
@@ -214,7 +265,11 @@ pub fn extract(file_path: &str, source: &str) -> Result<EmitOut, String> {
         extra_json: NONE_STR,
     });
     w.node_ids.push(ids::file_node_id(file_path));
-    w.stack.push(Scope { row: 0, kind: "file", name: base_name.to_string() });
+    w.stack.push(Scope {
+        row: 0,
+        kind: "file",
+        name: base_name.to_string(),
+    });
 
     w.visit_node(tree.root_node());
     w.flush_fn_ref_candidates();
@@ -240,10 +295,20 @@ impl<'t> Walker<'t> {
         node.start_position().row as u32 + 1
     }
     fn col_of(&self, node: Node) -> u32 {
-        util::col16(self.src, &self.line_starts, node.start_position().row, node.start_byte())
+        util::col16(
+            self.src,
+            &self.line_starts,
+            node.start_position().row,
+            node.start_byte(),
+        )
     }
     fn end_col_of(&self, node: Node) -> u32 {
-        util::col16(self.src, &self.line_starts, node.end_position().row, node.end_byte())
+        util::col16(
+            self.src,
+            &self.line_starts,
+            node.end_position().row,
+            node.end_byte(),
+        )
     }
     fn top_row(&self) -> u32 {
         self.stack.last().map(|s| s.row).unwrap_or(0)
@@ -251,7 +316,12 @@ impl<'t> Walker<'t> {
     fn inside_class_like(&self) -> bool {
         self.stack
             .last()
-            .map(|s| matches!(s.kind, "class" | "struct" | "interface" | "trait" | "enum" | "module"))
+            .map(|s| {
+                matches!(
+                    s.kind,
+                    "class" | "struct" | "interface" | "trait" | "enum" | "module"
+                )
+            })
             .unwrap_or(false)
     }
 
@@ -275,13 +345,21 @@ impl<'t> Walker<'t> {
         }
     }
 
-    fn create_node(&mut self, kind: &'static str, name: &str, node: Node<'t>, extra: Extra) -> Option<u32> {
+    fn create_node(
+        &mut self,
+        kind: &'static str,
+        name: &str,
+        node: Node<'t>,
+        extra: Extra,
+    ) -> Option<u32> {
         if name.is_empty() {
             return None;
         }
         let start_line = self.line_of(node);
         let column = self.col_of(node);
-        let id = self.node_id_allocator.generate(self.file_path, kind, name, start_line, column);
+        let id = self
+            .node_id_allocator
+            .generate(self.file_path, kind, name, start_line, column);
         let end_line = node.end_position().row as u32 + 1;
 
         let qualified = {
@@ -366,7 +444,11 @@ impl<'t> Walker<'t> {
             }
         }
         if matches!(kind, "function" | "method" | "constant" | "variable") {
-            self.value_scopes.push(ValueScope { row, node, name: name.to_string() });
+            self.value_scopes.push(ValueScope {
+                row,
+                node,
+                name: name.to_string(),
+            });
         }
         Some(row)
     }
@@ -377,7 +459,10 @@ impl<'t> Walker<'t> {
         }
         for i in 0..node.named_child_count() {
             if let Some(c) = node.named_child(i) {
-                if matches!(c.kind(), "identifier" | "type_identifier" | "simple_identifier" | "constant") {
+                if matches!(
+                    c.kind(),
+                    "identifier" | "type_identifier" | "simple_identifier" | "constant"
+                ) {
                     return self.text(c).to_string();
                 }
             }
@@ -398,7 +483,9 @@ impl<'t> Walker<'t> {
 
     /// pythonExtractor.isAsync: the PREVIOUS SIBLING token is `async`.
     fn is_async(&self, node: Node) -> bool {
-        node.prev_sibling().map(|p| p.kind() == "async").unwrap_or(false)
+        node.prev_sibling()
+            .map(|p| p.kind() == "async")
+            .unwrap_or(false)
     }
 
     /// pythonExtractor.isStatic: preceding decorator mentioning `staticmethod`.
@@ -503,10 +590,16 @@ impl<'t> Walker<'t> {
             is_async: Some(self.is_async(node)),
             is_static: Some(self.is_static(node)),
         };
-        let Some(row) = self.create_node("function", &name, node, extra) else { return };
+        let Some(row) = self.create_node("function", &name, node, extra) else {
+            return;
+        };
         // (python is not a TYPE_ANNOTATION language — no type refs)
         self.extract_decorators_for(node, row);
-        self.stack.push(Scope { row, kind: "function", name });
+        self.stack.push(Scope {
+            row,
+            kind: "function",
+            name,
+        });
         if let Some(body) = node.child_by_field_name("body") {
             self.visit_function_body(body);
         }
@@ -522,9 +615,15 @@ impl<'t> Walker<'t> {
             is_async: Some(self.is_async(node)),
             is_static: Some(self.is_static(node)),
         };
-        let Some(row) = self.create_node("method", &name, node, extra) else { return };
+        let Some(row) = self.create_node("method", &name, node, extra) else {
+            return;
+        };
         self.extract_decorators_for(node, row);
-        self.stack.push(Scope { row, kind: "method", name });
+        self.stack.push(Scope {
+            row,
+            kind: "method",
+            name,
+        });
         if let Some(body) = node.child_by_field_name("body") {
             self.visit_function_body(body);
         }
@@ -538,15 +637,21 @@ impl<'t> Walker<'t> {
             docstring: docstring_for(node, self.src),
             ..Extra::default()
         };
-        let Some(row) = self.create_node("class", &name, node, extra) else { return };
+        let Some(row) = self.create_node("class", &name, node, extra) else {
+            return;
+        };
 
         // Inheritance: `class Flask(Scaffold, Mixin):` — argument_list children.
         let extends_kind = edge_kind_index("extends").unwrap();
         for i in 0..node.named_child_count() {
-            let Some(child) = node.named_child(i) else { continue };
+            let Some(child) = node.named_child(i) else {
+                continue;
+            };
             if child.kind() == "argument_list" {
                 for j in 0..child.named_child_count() {
-                    let Some(arg) = child.named_child(j) else { continue };
+                    let Some(arg) = child.named_child(j) else {
+                        continue;
+                    };
                     if matches!(arg.kind(), "identifier" | "attribute") {
                         let name = self.text(arg).to_string();
                         self.push_ref_at(row, &name, extends_kind, arg);
@@ -556,7 +661,11 @@ impl<'t> Walker<'t> {
         }
         self.extract_decorators_for(node, row);
 
-        self.stack.push(Scope { row, kind: "class", name });
+        self.stack.push(Scope {
+            row,
+            kind: "class",
+            name,
+        });
         let body = node.child_by_field_name("body").unwrap_or(node);
         for i in 0..body.named_child_count() {
             if let Some(c) = body.named_child(i) {
@@ -571,8 +680,12 @@ impl<'t> Walker<'t> {
     /// name, for the declaration scan to skip.
     fn extract_variable(&mut self, node: Node<'t>) -> Vec<usize> {
         let docstring = preceding_docstring(node, self.src);
-        let left = node.child_by_field_name("left").or_else(|| node.named_child(0));
-        let right = node.child_by_field_name("right").or_else(|| node.named_child(1));
+        let left = node
+            .child_by_field_name("left")
+            .or_else(|| node.named_child(0));
+        let right = node
+            .child_by_field_name("right")
+            .or_else(|| node.named_child(1));
         let mut assigned: Option<(u32, String)> = None;
         if let Some(left) = left {
             if matches!(left.kind(), "identifier" | "constant") {
@@ -583,7 +696,11 @@ impl<'t> Walker<'t> {
                     "variable",
                     &name,
                     node,
-                    Extra { docstring, signature, ..Extra::default() },
+                    Extra {
+                        docstring,
+                        signature,
+                        ..Extra::default()
+                    },
                 );
                 if let Some(row) = row {
                     assigned = Some((row, name));
@@ -598,7 +715,11 @@ impl<'t> Walker<'t> {
         if let Some(right) = right {
             match assigned {
                 Some((row, name)) => {
-                    self.stack.push(Scope { row, kind: "variable", name });
+                    self.stack.push(Scope {
+                        row,
+                        kind: "variable",
+                        name,
+                    });
                     self.visit_function_body(right);
                     self.stack.pop();
                     walked.push(right.id());
@@ -616,7 +737,9 @@ impl<'t> Walker<'t> {
         if node.kind() == "import_from_statement" {
             // Hook path: module_name field → import node + module ref, then
             // per-name binding refs (emitPyFromImportRefs).
-            let Some(module_node) = node.child_by_field_name("module_name") else { return };
+            let Some(module_node) = node.child_by_field_name("module_name") else {
+                return;
+            };
             let module_name = self.text(module_node).to_string();
             if module_name.is_empty() {
                 return;
@@ -625,14 +748,19 @@ impl<'t> Walker<'t> {
                 "import",
                 &module_name,
                 node,
-                Extra { signature: Some(import_text), ..Extra::default() },
+                Extra {
+                    signature: Some(import_text),
+                    ..Extra::default()
+                },
             );
             let parent = self.top_row();
             self.push_ref_at(parent, &module_name.clone(), imports_kind, node);
 
             // emitPyFromImportRefs: one `imports` ref per imported name.
             for i in 0..node.named_child_count() {
-                let Some(child) = node.named_child(i) else { continue };
+                let Some(child) = node.named_child(i) else {
+                    continue;
+                };
                 if child.start_byte() == module_node.start_byte()
                     && child.end_byte() == module_node.end_byte()
                 {
@@ -664,14 +792,19 @@ impl<'t> Walker<'t> {
         // per dotted name (the python multi-import branch).
         let parent = self.top_row();
         for i in 0..node.named_child_count() {
-            let Some(child) = node.named_child(i) else { continue };
+            let Some(child) = node.named_child(i) else {
+                continue;
+            };
             if child.kind() == "dotted_name" {
                 let name = self.text(child).to_string();
                 self.create_node(
                     "import",
                     &name,
                     node,
-                    Extra { signature: Some(import_text.clone()), ..Extra::default() },
+                    Extra {
+                        signature: Some(import_text.clone()),
+                        ..Extra::default()
+                    },
                 );
                 self.push_ref_at(parent, &name, imports_kind, child);
             } else if child.kind() == "aliased_import" {
@@ -684,7 +817,10 @@ impl<'t> Walker<'t> {
                         "import",
                         &name,
                         node,
-                        Extra { signature: Some(import_text.clone()), ..Extra::default() },
+                        Extra {
+                            signature: Some(import_text.clone()),
+                            ..Extra::default()
+                        },
                     );
                     self.push_ref_at(parent, &name, imports_kind, dotted);
                 }
@@ -723,7 +859,10 @@ impl<'t> Walker<'t> {
                         }
                     }
                     let recv_ident = receiver.filter(|r| {
-                        matches!(r.kind(), "identifier" | "simple_identifier" | "field_identifier")
+                        matches!(
+                            r.kind(),
+                            "identifier" | "simple_identifier" | "field_identifier"
+                        )
                     });
                     if let Some(r) = recv_ident {
                         let receiver_name = self.text(r);
@@ -737,7 +876,9 @@ impl<'t> Walker<'t> {
                         // `<inner>().<method>`, or nothing when the inner callee
                         // is not a plain name / attribute chain. Mirrors
                         // TreeSitterExtractor.extractCall.
-                        let Some(inner) = self.plain_inner_callee(r) else { return };
+                        let Some(inner) = self.plain_inner_callee(r) else {
+                            return;
+                        };
                         callee_name = format!("{inner}().{method_name}");
                     } else if let Some(r) = receiver {
                         // Any receiver shape the arms above do not claim — attribute
@@ -777,7 +918,12 @@ impl<'t> Walker<'t> {
                 callee_name = c[1].to_string();
             }
             let from = self.top_row();
-            self.push_ref_at(from, &callee_name.clone(), edge_kind_index("calls").unwrap(), node);
+            self.push_ref_at(
+                from,
+                &callee_name.clone(),
+                edge_kind_index("calls").unwrap(),
+                node,
+            );
         }
     }
 
@@ -785,7 +931,11 @@ impl<'t> Walker<'t> {
     /// chain (`make`, `d.setdefault`), whitespace stripped (#1683).
     fn plain_inner_callee(&self, call: Node<'t>) -> Option<String> {
         let inner = call.child_by_field_name("function")?;
-        let text: String = self.text(inner).chars().filter(|c| !c.is_whitespace()).collect();
+        let text: String = self
+            .text(inner)
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
         if text.is_empty() {
             return None;
         }
@@ -794,7 +944,11 @@ impl<'t> Walker<'t> {
             matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
                 && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
         });
-        if ok { Some(text) } else { None }
+        if ok {
+            Some(text)
+        } else {
+            None
+        }
     }
 
     /// extractDecoratorsFor — python decorators are PRECEDING SIBLINGS inside
@@ -835,22 +989,33 @@ impl<'t> Walker<'t> {
     }
 
     fn consider_decorator(&mut self, n: Node<'t>, decorated_row: u32) {
-        if !matches!(n.kind(), "decorator" | "annotation" | "marker_annotation" | "attribute") {
+        if !matches!(
+            n.kind(),
+            "decorator" | "annotation" | "marker_annotation" | "attribute"
+        ) {
             return;
         }
         let mut target: Option<Node> = None;
         for i in 0..n.named_child_count() {
-            let Some(child) = n.named_child(i) else { continue };
+            let Some(child) = n.named_child(i) else {
+                continue;
+            };
             if child.kind() == "call_expression" {
-                target = child.child_by_field_name("function").or_else(|| child.named_child(0));
+                target = child
+                    .child_by_field_name("function")
+                    .or_else(|| child.named_child(0));
                 if target.is_some() {
                     break;
                 }
             }
             if matches!(
                 child.kind(),
-                "identifier" | "member_expression" | "scoped_identifier" | "navigation_expression"
-                    | "user_type" | "type_identifier"
+                "identifier"
+                    | "member_expression"
+                    | "scoped_identifier"
+                    | "navigation_expression"
+                    | "user_type"
+                    | "type_identifier"
             ) {
                 target = Some(child);
                 break;
@@ -878,7 +1043,12 @@ impl<'t> Walker<'t> {
         if name.is_empty() {
             return;
         }
-        self.push_ref_at(decorated_row, &name, edge_kind_index("decorates").unwrap(), n);
+        self.push_ref_at(
+            decorated_row,
+            &name,
+            edge_kind_index("decorates").unwrap(),
+            n,
+        );
     }
 
     // --- fn refs (PYTHON_SPEC) ------------------------------------------------------
@@ -938,13 +1108,18 @@ impl<'t> Walker<'t> {
                 "identifier" => (self.text(v).to_string(), v),
                 // Preserve only statically named member chains, as on WASM.
                 "attribute" => {
-                    let Some(attr) = v.child_by_field_name("attribute") else { continue };
+                    let Some(attr) = v.child_by_field_name("attribute") else {
+                        continue;
+                    };
                     let name = self.text(v);
                     if !name.split('.').all(|part| {
-                        !part.is_empty() && part.chars().enumerate().all(|(i, c)| {
-                            c == '_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit())
-                        })
-                    }) { continue; }
+                        !part.is_empty()
+                            && part.chars().enumerate().all(|(i, c)| {
+                                c == '_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit())
+                            })
+                    }) {
+                        continue;
+                    }
                     (name.to_string(), attr)
                 }
                 _ => continue,
@@ -977,7 +1152,10 @@ impl<'t> Walker<'t> {
         if depth > 0
             && matches!(
                 node.kind(),
-                "function_definition" | "arrow_function" | "function_expression" | "lambda_literal"
+                "function_definition"
+                    | "arrow_function"
+                    | "function_expression"
+                    | "lambda_literal"
                     | "lambda_expression"
             )
         {
@@ -1098,7 +1276,10 @@ impl<'t> Walker<'t> {
                     break;
                 }
                 visited += 1;
-                if matches!(n.kind(), "identifier" | "constant" | "name" | "simple_identifier") {
+                if matches!(
+                    n.kind(),
+                    "identifier" | "constant" | "name" | "simple_identifier"
+                ) {
                     let ref_name = self.text(n);
                     if let Some(&target_row) = targets.get(ref_name) {
                         let target_id = self.node_ids[target_row as usize].as_str();
@@ -1136,8 +1317,18 @@ impl<'t> Walker<'t> {
 fn is_stoplisted(name: &str) -> bool {
     matches!(
         name,
-        "this" | "self" | "super" | "null" | "nil" | "true" | "false" | "undefined" | "new"
-            | "NULL" | "nullptr" | "None"
+        "this"
+            | "self"
+            | "super"
+            | "null"
+            | "nil"
+            | "true"
+            | "false"
+            | "undefined"
+            | "new"
+            | "NULL"
+            | "nullptr"
+            | "None"
     )
 }
 
@@ -1149,9 +1340,17 @@ fn collapse_js_whitespace(s: &str) -> String {
     fn is_js_space(c: char) -> bool {
         matches!(
             c,
-            '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{feff}'
-                | '\u{2028}' | '\u{2029}'
-                | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{202f}' | '\u{205f}' | '\u{3000}'
+            '\t' | '\n'
+                | '\u{b}'
+                | '\u{c}'
+                | '\r'
+                | ' '
+                | '\u{a0}'
+                | '\u{feff}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{1680}'
+                | '\u{2000}'..='\u{200a}' | '\u{202f}' | '\u{205f}' | '\u{3000}'
         )
     }
     let mut out = String::with_capacity(s.len());
@@ -1174,16 +1373,50 @@ fn collapse_js_whitespace(s: &str) -> String {
 fn is_literal_receiver(kind: &str) -> bool {
     matches!(
         kind,
-        "string" | "string_literal" | "interpreted_string_literal" | "raw_string_literal"
-            | "template_string" | "concatenated_string" | "formatted_string" | "f_string"
-            | "line_string_literal" | "string_content" | "heredoc_body"
-            | "number" | "number_literal" | "integer" | "integer_literal" | "float"
-            | "float_literal" | "int_literal" | "decimal_integer_literal" | "real_literal"
-            | "char_literal" | "character_literal" | "rune_literal" | "regex" | "regex_literal"
-            | "true" | "false" | "boolean_literal" | "bool_literal" | "none" | "null" | "nil"
-            | "null_literal" | "undefined"
-            | "list" | "list_literal" | "array" | "array_literal" | "array_creation_expression"
-            | "dictionary" | "dict_literal" | "object" | "tuple" | "set"
+        "string"
+            | "string_literal"
+            | "interpreted_string_literal"
+            | "raw_string_literal"
+            | "template_string"
+            | "concatenated_string"
+            | "formatted_string"
+            | "f_string"
+            | "line_string_literal"
+            | "string_content"
+            | "heredoc_body"
+            | "number"
+            | "number_literal"
+            | "integer"
+            | "integer_literal"
+            | "float"
+            | "float_literal"
+            | "int_literal"
+            | "decimal_integer_literal"
+            | "real_literal"
+            | "char_literal"
+            | "character_literal"
+            | "rune_literal"
+            | "regex"
+            | "regex_literal"
+            | "true"
+            | "false"
+            | "boolean_literal"
+            | "bool_literal"
+            | "none"
+            | "null"
+            | "nil"
+            | "null_literal"
+            | "undefined"
+            | "list"
+            | "list_literal"
+            | "array"
+            | "array_literal"
+            | "array_creation_expression"
+            | "dictionary"
+            | "dict_literal"
+            | "object"
+            | "tuple"
+            | "set"
     )
 }
 

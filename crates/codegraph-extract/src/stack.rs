@@ -170,9 +170,7 @@ pub fn run_guarded<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String
     begin();
     let out = f();
     if overflowed() {
-        return Err(
-            "defer: nesting too deep for the extraction walker".to_string(),
-        );
+        return Err("defer: nesting too deep for the extraction walker".to_string());
     }
     out
 }
@@ -197,7 +195,11 @@ mod tests {
     }
 
     fn nested_parens(prefix: &str, suffix: &str) -> String {
-        format!("{prefix}{}1{}{suffix}", "(".repeat(DEPTH), ")".repeat(DEPTH))
+        format!(
+            "{prefix}{}1{}{suffix}",
+            "(".repeat(DEPTH),
+            ")".repeat(DEPTH)
+        )
     }
 
     #[test]
@@ -206,7 +208,10 @@ mod tests {
         // is only for platforms the kernel is not built for.
         let low = os_stack_low().expect("OS stack bounds available");
         let sp = current_sp();
-        assert!(low < sp, "stack low {low:#x} must be below the current sp {sp:#x}");
+        assert!(
+            low < sp,
+            "stack low {low:#x} must be below the current sp {sp:#x}"
+        );
         assert!(sp - low < 1 << 31, "implausible stack size {}", sp - low);
     }
 
@@ -227,7 +232,11 @@ mod tests {
 
     #[test]
     fn deep_braces_c_defer_instead_of_crashing() {
-        let src = format!("void foo(void) {{\n{}{}\n}}\n", "{".repeat(DEPTH), "}".repeat(DEPTH));
+        let src = format!(
+            "void foo(void) {{\n{}{}\n}}\n",
+            "{".repeat(DEPTH),
+            "}".repeat(DEPTH)
+        );
         let r = on_small_stack(move || run_guarded(|| crate::ccpp::extract("deep.c", &src, "c")));
         let err = r.err().expect("deep nesting must defer");
         assert!(err.starts_with("defer:"), "unexpected error: {err}");
@@ -238,14 +247,32 @@ mod tests {
     #[test]
     fn deep_parens_cpp_rust_ts_python_defer_instead_of_crashing() {
         let cases: [(&str, Extract, String); 4] = [
-            ("deep.cpp", |s| crate::ccpp::extract("deep.cpp", s, "cpp"), nested_parens("int f() { return ", "; }\n")),
-            ("deep.rs", |s| crate::rustlang::extract("deep.rs", s), nested_parens("fn f() -> i32 { ", " }\n")),
-            ("deep.ts", |s| crate::tsjs::extract("deep.ts", s, "typescript"), nested_parens("function f() { return ", "; }\n")),
-            ("deep.py", |s| crate::python::extract("deep.py", s), nested_parens("def f():\n    return ", "\n")),
+            (
+                "deep.cpp",
+                |s| crate::ccpp::extract("deep.cpp", s, "cpp"),
+                nested_parens("int f() { return ", "; }\n"),
+            ),
+            (
+                "deep.rs",
+                |s| crate::rustlang::extract("deep.rs", s),
+                nested_parens("fn f() -> i32 { ", " }\n"),
+            ),
+            (
+                "deep.ts",
+                |s| crate::tsjs::extract("deep.ts", s, "typescript"),
+                nested_parens("function f() { return ", "; }\n"),
+            ),
+            (
+                "deep.py",
+                |s| crate::python::extract("deep.py", s),
+                nested_parens("def f():\n    return ", "\n"),
+            ),
         ];
         for (name, extract, src) in cases {
             let r = on_small_stack(move || run_guarded(|| extract(&src)));
-            let err = r.err().unwrap_or_else(|| panic!("{name}: deep nesting must defer"));
+            let err = r
+                .err()
+                .unwrap_or_else(|| panic!("{name}: deep nesting must defer"));
             assert!(err.starts_with("defer:"), "{name}: unexpected error: {err}");
         }
     }
@@ -260,7 +287,11 @@ mod tests {
 
     #[test]
     fn latch_resets_between_runs() {
-        let deep = format!("void foo(void) {{\n{}{}\n}}\n", "{".repeat(DEPTH), "}".repeat(DEPTH));
+        let deep = format!(
+            "void foo(void) {{\n{}{}\n}}\n",
+            "{".repeat(DEPTH),
+            "}".repeat(DEPTH)
+        );
         on_small_stack(move || {
             assert!(run_guarded(|| crate::ccpp::extract("deep.c", &deep, "c")).is_err());
             // The latch from the deep file must not poison the next, shallow one.

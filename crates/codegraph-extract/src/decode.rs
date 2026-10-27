@@ -1,12 +1,12 @@
 //! Row tables (buffers.rs) → typed [`ExtractionResult`].
 
 use crate::buffers::{
-    EmitOut, EDGE_KINDS, EDGE_ROW_SIZE, FUNCTION_REF_CODE, KERNEL_ABI_VERSION, META_SIZE, NODE_KINDS,
-    NODE_ROW_SIZE, NONE, REF_FLAG_FILE_PATH, REF_ROW_SIZE,
+    EmitOut, EDGE_KINDS, EDGE_ROW_SIZE, FUNCTION_REF_CODE, KERNEL_ABI_VERSION, META_SIZE,
+    NODE_KINDS, NODE_ROW_SIZE, NONE, REF_FLAG_FILE_PATH, REF_ROW_SIZE,
 };
 use codegraph_core::{
-    now_ms, Edge, EdgeKind, ExtractionError, ExtractionResult, Language, Node, NodeKind, Provenance,
-    ReferenceKind, UnresolvedReference, Visibility,
+    now_ms, Edge, EdgeKind, ExtractionError, ExtractionResult, Language, Node, NodeKind,
+    Provenance, ReferenceKind, UnresolvedReference, Visibility,
 };
 
 fn u8_at(b: &[u8], off: usize) -> u8 {
@@ -42,7 +42,9 @@ impl Arena<'_> {
     }
 
     fn list_at(&self, row: &[u8], off: usize) -> Vec<String> {
-        self.str_at(row, off).map(|s| s.split('\0').map(str::to_string).collect()).unwrap_or_default()
+        self.str_at(row, off)
+            .map(|s| s.split('\0').map(str::to_string).collect())
+            .unwrap_or_default()
     }
 }
 
@@ -77,7 +79,8 @@ fn provenance(code: u8) -> Option<Provenance> {
 /// Apply the `extraJson` escape hatch: any Node attribute a walker set that
 /// has no fixed column.
 fn apply_extra(node: &mut Node, extra: &str) {
-    let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(extra) else {
+    let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(extra)
+    else {
         return;
     };
     for (key, value) in map {
@@ -92,12 +95,20 @@ fn apply_extra(node: &mut Node, extra: &str) {
             ("qualifiedName", serde_json::Value::String(s)) => node.qualified_name = s,
             ("name", serde_json::Value::String(s)) => node.name = s,
             ("visibility", serde_json::Value::String(s)) => node.visibility = s.parse().ok(),
-            ("endLine", serde_json::Value::Number(n)) => node.end_line = n.as_u64().unwrap_or(0) as u32,
+            ("endLine", serde_json::Value::Number(n)) => {
+                node.end_line = n.as_u64().unwrap_or(0) as u32
+            }
             ("decorators", serde_json::Value::Array(a)) => {
-                node.decorators = a.into_iter().filter_map(|v| v.as_str().map(str::to_string)).collect()
+                node.decorators = a
+                    .into_iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
             }
             ("typeParameters", serde_json::Value::Array(a)) => {
-                node.type_parameters = a.into_iter().filter_map(|v| v.as_str().map(str::to_string)).collect()
+                node.type_parameters = a
+                    .into_iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
             }
             _ => {}
         }
@@ -105,13 +116,21 @@ fn apply_extra(node: &mut Node, extra: &str) {
 }
 
 /// Decode one file's row tables.
-pub fn decode(out: &EmitOut, file_path: &str, language: Language) -> Result<ExtractionResult, String> {
+pub fn decode(
+    out: &EmitOut,
+    file_path: &str,
+    language: Language,
+) -> Result<ExtractionResult, String> {
     let meta = &out.meta;
     if meta.len() < META_SIZE {
         return Err(format!("extraction meta too short: {}", meta.len()));
     }
     if u8_at(meta, 0) != KERNEL_ABI_VERSION {
-        return Err(format!("extraction table version {} != {}", u8_at(meta, 0), KERNEL_ABI_VERSION));
+        return Err(format!(
+            "extraction table version {} != {}",
+            u8_at(meta, 0),
+            KERNEL_ABI_VERSION
+        ));
     }
     let node_count = u32_at(meta, 4) as usize;
     let edge_count = u32_at(meta, 8) as usize;
@@ -122,7 +141,9 @@ pub fn decode(out: &EmitOut, file_path: &str, language: Language) -> Result<Extr
     let mut nodes = Vec::with_capacity(node_count);
     for i in 0..node_count {
         let row = &out.nodes[i * NODE_ROW_SIZE..(i + 1) * NODE_ROW_SIZE];
-        let kind: NodeKind = NODE_KINDS[u8_at(row, 0) as usize].parse().map_err(|e| format!("{e}"))?;
+        let kind: NodeKind = NODE_KINDS[u8_at(row, 0) as usize]
+            .parse()
+            .map_err(|e| format!("{e}"))?;
         let flags = u16_at(row, 2);
         let name = arena.str_at(row, 20).unwrap_or_default();
         let mut node = Node {
@@ -158,19 +179,26 @@ pub fn decode(out: &EmitOut, file_path: &str, language: Language) -> Result<Extr
         if idx == NONE {
             fallback.unwrap_or_default()
         } else {
-            nodes.get(idx as usize).map(|n| n.id.clone()).unwrap_or_default()
+            nodes
+                .get(idx as usize)
+                .map(|n| n.id.clone())
+                .unwrap_or_default()
         }
     };
 
     let mut edges = Vec::with_capacity(edge_count);
     for i in 0..edge_count {
         let row = &out.edges[i * EDGE_ROW_SIZE..(i + 1) * EDGE_ROW_SIZE];
-        let kind: EdgeKind = EDGE_KINDS[u8_at(row, 8) as usize].parse().map_err(|e| format!("{e}"))?;
+        let kind: EdgeKind = EDGE_KINDS[u8_at(row, 8) as usize]
+            .parse()
+            .map_err(|e| format!("{e}"))?;
         edges.push(Edge {
             source: id_of(u32_at(row, 0), arena.str_at(row, 28)),
             target: id_of(u32_at(row, 4), arena.str_at(row, 36)),
             kind,
-            metadata: arena.str_at(row, 20).and_then(|s| serde_json::from_str(&s).ok()),
+            metadata: arena
+                .str_at(row, 20)
+                .and_then(|s| serde_json::from_str(&s).ok()),
             line: opt_u32(row, 12),
             column: opt_u32(row, 16),
             provenance: provenance(u8_at(row, 9)),
@@ -184,7 +212,9 @@ pub fn decode(out: &EmitOut, file_path: &str, language: Language) -> Result<Extr
         let reference_kind = if code == FUNCTION_REF_CODE {
             ReferenceKind::FunctionRef
         } else {
-            EDGE_KINDS[code as usize].parse().map_err(|e| format!("{e}"))?
+            EDGE_KINDS[code as usize]
+                .parse()
+                .map_err(|e| format!("{e}"))?
         };
         refs.push(UnresolvedReference {
             from_node_id: id_of(u32_at(row, 0), arena.str_at(row, 32)),
@@ -210,5 +240,11 @@ pub fn decode(out: &EmitOut, file_path: &str, language: Language) -> Result<Extr
         }
     }
 
-    Ok(ExtractionResult { nodes, edges, unresolved_references: refs, errors, duration_ms: 0.0 })
+    Ok(ExtractionResult {
+        nodes,
+        edges,
+        unresolved_references: refs,
+        errors,
+        duration_ms: 0.0,
+    })
 }

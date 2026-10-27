@@ -162,9 +162,16 @@ pub fn extract(file_path: &str, source: &str) -> Result<EmitOut, String> {
         return_type: NONE_STR,
         extra_json: NONE_STR,
     });
-    w.nodes_meta.push(NodeMeta { kind: "file", name: base_name.to_string() });
+    w.nodes_meta.push(NodeMeta {
+        kind: "file",
+        name: base_name.to_string(),
+    });
     w.node_ids.push(ids::file_node_id(file_path));
-    w.stack.push(Scope { row: 0, kind: "file", name: base_name.to_string() });
+    w.stack.push(Scope {
+        row: 0,
+        kind: "file",
+        name: base_name.to_string(),
+    });
 
     w.visit_node(tree.root_node());
     w.flush_fn_ref_candidates();
@@ -190,10 +197,20 @@ impl<'t> Walker<'t> {
         node.start_position().row as u32 + 1
     }
     fn col_of(&self, node: Node) -> u32 {
-        util::col16(self.src, &self.line_starts, node.start_position().row, node.start_byte())
+        util::col16(
+            self.src,
+            &self.line_starts,
+            node.start_position().row,
+            node.start_byte(),
+        )
     }
     fn end_col_of(&self, node: Node) -> u32 {
-        util::col16(self.src, &self.line_starts, node.end_position().row, node.end_byte())
+        util::col16(
+            self.src,
+            &self.line_starts,
+            node.end_position().row,
+            node.end_byte(),
+        )
     }
     fn top_row(&self) -> u32 {
         self.stack.last().map(|s| s.row).unwrap_or(0)
@@ -201,7 +218,12 @@ impl<'t> Walker<'t> {
     fn inside_class_like(&self) -> bool {
         self.stack
             .last()
-            .map(|s| matches!(s.kind, "class" | "struct" | "interface" | "trait" | "enum" | "module"))
+            .map(|s| {
+                matches!(
+                    s.kind,
+                    "class" | "struct" | "interface" | "trait" | "enum" | "module"
+                )
+            })
             .unwrap_or(false)
     }
 
@@ -225,13 +247,21 @@ impl<'t> Walker<'t> {
         }
     }
 
-    fn create_node(&mut self, kind: &'static str, name: &str, node: Node<'t>, extra: Extra) -> Option<u32> {
+    fn create_node(
+        &mut self,
+        kind: &'static str,
+        name: &str,
+        node: Node<'t>,
+        extra: Extra,
+    ) -> Option<u32> {
         if name.is_empty() {
             return None;
         }
         let start_line = self.line_of(node);
         let column = self.col_of(node);
-        let id = self.node_id_allocator.generate(self.file_path, kind, name, start_line, column);
+        let id = self
+            .node_id_allocator
+            .generate(self.file_path, kind, name, start_line, column);
         let end_line = node.end_position().row as u32 + 1;
 
         let qualified = extra.qualified_name.unwrap_or_else(|| {
@@ -277,7 +307,10 @@ impl<'t> Walker<'t> {
             return_type: ret_ref,
             extra_json: NONE_STR,
         });
-        self.nodes_meta.push(NodeMeta { kind, name: name.to_string() });
+        self.nodes_meta.push(NodeMeta {
+            kind,
+            name: name.to_string(),
+        });
         self.node_ids.push(id);
 
         let parent_row = self.top_row();
@@ -312,7 +345,11 @@ impl<'t> Walker<'t> {
             }
         }
         if matches!(kind, "function" | "method" | "constant" | "variable") {
-            self.value_scopes.push(ValueScope { row, node, name: name.to_string() });
+            self.value_scopes.push(ValueScope {
+                row,
+                node,
+                name: name.to_string(),
+            });
         }
         Some(row)
     }
@@ -323,7 +360,10 @@ impl<'t> Walker<'t> {
         }
         for i in 0..node.named_child_count() {
             if let Some(c) = node.named_child(i) {
-                if matches!(c.kind(), "identifier" | "type_identifier" | "simple_identifier" | "constant") {
+                if matches!(
+                    c.kind(),
+                    "identifier" | "type_identifier" | "simple_identifier" | "constant"
+                ) {
                     return self.text(c).to_string();
                 }
             }
@@ -346,7 +386,11 @@ impl<'t> Walker<'t> {
     fn is_exported(&self, node: Node) -> bool {
         if let Some(name_node) = node.child_by_field_name("name") {
             let text = self.text(name_node);
-            return text.as_bytes().first().map(|b| b.is_ascii_uppercase()).unwrap_or(false);
+            return text
+                .as_bytes()
+                .first()
+                .map(|b| b.is_ascii_uppercase())
+                .unwrap_or(false);
         }
         false
     }
@@ -363,7 +407,12 @@ impl<'t> Walker<'t> {
         if result.kind() == "pointer_type" {
             result = (0..result.named_child_count())
                 .filter_map(|i| result.named_child(i))
-                .find(|c| matches!(c.kind(), "type_identifier" | "qualified_type" | "generic_type"))
+                .find(|c| {
+                    matches!(
+                        c.kind(),
+                        "type_identifier" | "qualified_type" | "generic_type"
+                    )
+                })
                 .unwrap_or(result);
         }
         let text = self.text(result).trim();
@@ -429,8 +478,10 @@ impl<'t> Walker<'t> {
             skip_children = true;
         } else if kind == "type_spec" || kind == "type_alias" {
             skip_children = self.extract_type_alias(node);
-        } else if matches!(kind, "var_declaration" | "short_var_declaration" | "const_declaration")
-            && !self.inside_class_like()
+        } else if matches!(
+            kind,
+            "var_declaration" | "short_var_declaration" | "const_declaration"
+        ) && !self.inside_class_like()
         {
             // The initializers extract_variable walked under their specs'
             // symbols took their own candidates; the scan covers the rest.
@@ -505,9 +556,15 @@ impl<'t> Walker<'t> {
             return_type: self.return_type_of(node),
             ..Extra::default()
         };
-        let Some(row) = self.create_node("function", &name, node, extra) else { return };
+        let Some(row) = self.create_node("function", &name, node, extra) else {
+            return;
+        };
         self.extract_type_annotations(node, row);
-        self.stack.push(Scope { row, kind: "function", name });
+        self.stack.push(Scope {
+            row,
+            kind: "function",
+            name,
+        });
         if let Some(body) = node.child_by_field_name("body") {
             self.visit_function_body(body);
         }
@@ -530,7 +587,9 @@ impl<'t> Walker<'t> {
             is_exported: Some(self.is_exported(node)),
             ..Extra::default()
         };
-        let Some(row) = self.create_node("method", &name, node, extra) else { return };
+        let Some(row) = self.create_node("method", &name, node, extra) else {
+            return;
+        };
 
         if let Some(receiver_type) = &receiver_type {
             if !self.inside_class_like() {
@@ -559,7 +618,11 @@ impl<'t> Walker<'t> {
         }
 
         self.extract_type_annotations(node, row);
-        self.stack.push(Scope { row, kind: "method", name });
+        self.stack.push(Scope {
+            row,
+            kind: "method",
+            name,
+        });
         if let Some(body) = node.child_by_field_name("body") {
             self.visit_function_body(body);
         }
@@ -584,11 +647,19 @@ impl<'t> Walker<'t> {
                 "struct",
                 &name,
                 node,
-                Extra { docstring, is_exported, ..Extra::default() },
+                Extra {
+                    docstring,
+                    is_exported,
+                    ..Extra::default()
+                },
             ) else {
                 return true;
             };
-            self.stack.push(Scope { row, kind: "struct", name });
+            self.stack.push(Scope {
+                row,
+                kind: "struct",
+                name,
+            });
             if let Some(type_child) = type_child {
                 // Struct embedding → extends (field_declaration without a
                 // field_identifier), reached via the inheritance recursion.
@@ -616,7 +687,11 @@ impl<'t> Walker<'t> {
                 "interface",
                 &name,
                 node,
-                Extra { docstring, is_exported, ..Extra::default() },
+                Extra {
+                    docstring,
+                    is_exported,
+                    ..Extra::default()
+                },
             ) else {
                 return true;
             };
@@ -631,7 +706,11 @@ impl<'t> Walker<'t> {
             "type_alias",
             &name,
             node,
-            Extra { docstring, is_exported, ..Extra::default() },
+            Extra {
+                docstring,
+                is_exported,
+                ..Extra::default()
+            },
         );
         // (go has no `value` field — no TS-style type-ref walk or member
         // extraction.) An alias and a defined type (`type_spec`) alike
@@ -649,11 +728,23 @@ impl<'t> Walker<'t> {
     /// extractGoInterfaceMethods: method_elem/method_spec → method nodes, each
     /// referencing the types its signature names (`decl` declares the
     /// interface).
-    fn extract_go_interface_methods(&mut self, interface_type: Node<'t>, iface_row: u32, iface_name: &str, decl: Node<'t>) {
-        self.stack.push(Scope { row: iface_row, kind: "interface", name: iface_name.to_string() });
+    fn extract_go_interface_methods(
+        &mut self,
+        interface_type: Node<'t>,
+        iface_row: u32,
+        iface_name: &str,
+        decl: Node<'t>,
+    ) {
+        self.stack.push(Scope {
+            row: iface_row,
+            kind: "interface",
+            name: iface_name.to_string(),
+        });
         let references = edge_kind_index("references").unwrap();
         for i in 0..interface_type.named_child_count() {
-            let Some(m) = interface_type.named_child(i) else { continue };
+            let Some(m) = interface_type.named_child(i) else {
+                continue;
+            };
             if !matches!(m.kind(), "method_elem" | "method_spec") {
                 continue;
             }
@@ -662,7 +753,17 @@ impl<'t> Walker<'t> {
             let mname = self.text(name_node).to_string();
             if !mname.is_empty() {
                 let signature = self.signature_of(m);
-                let Some(row) = self.create_node("method", &mname, m, Extra { signature, ..Extra::default() }) else { continue };
+                let Some(row) = self.create_node(
+                    "method",
+                    &mname,
+                    m,
+                    Extra {
+                        signature,
+                        ..Extra::default()
+                    },
+                ) else {
+                    continue;
+                };
                 for ty in self.interface_method_type_names(m, decl) {
                     let text = self.text(ty).to_string();
                     self.push_ref_at(row, &text, references, ty);
@@ -698,7 +799,9 @@ impl<'t> Walker<'t> {
         // `const ( … )` group holds them directly.
         let mut specs: Vec<Node<'t>> = Vec::new();
         for i in 0..node.named_child_count() {
-            let Some(child) = node.named_child(i) else { continue };
+            let Some(child) = node.named_child(i) else {
+                continue;
+            };
             if child.kind() == "var_spec_list" {
                 specs.extend((0..child.named_child_count()).filter_map(|j| child.named_child(j)));
             } else {
@@ -724,10 +827,18 @@ impl<'t> Walker<'t> {
                     // keeps the group's.
                     let doc = self.docstring_of(spec).or_else(|| docstring.clone());
                     var_row = self.create_node(
-                        if is_const_decl { "constant" } else { "variable" },
+                        if is_const_decl {
+                            "constant"
+                        } else {
+                            "variable"
+                        },
                         &name,
                         spec,
-                        Extra { docstring: doc, signature, ..Extra::default() },
+                        Extra {
+                            docstring: doc,
+                            signature,
+                            ..Extra::default()
+                        },
                     );
                 }
             }
@@ -735,7 +846,11 @@ impl<'t> Walker<'t> {
             if let Some(value_field) = spec.child_by_field_name("value") {
                 if let Some(row) = var_row {
                     let name = self.nodes_meta[row as usize].name.clone();
-                    self.stack.push(Scope { row, kind: "variable", name });
+                    self.stack.push(Scope {
+                        row,
+                        kind: "variable",
+                        name,
+                    });
                     self.visit_function_body(value_field);
                     self.stack.pop();
                     walked.push(value_field.id());
@@ -764,7 +879,11 @@ impl<'t> Walker<'t> {
                         "variable",
                         &name,
                         node,
-                        Extra { docstring: docstring.clone(), signature, ..Extra::default() },
+                        Extra {
+                            docstring: docstring.clone(),
+                            signature,
+                            ..Extra::default()
+                        },
                     );
                 }
             }
@@ -794,7 +913,10 @@ impl<'t> Walker<'t> {
                 "import",
                 &import_path,
                 spec,
-                Extra { signature: Some(signature), ..Extra::default() },
+                Extra {
+                    signature: Some(signature),
+                    ..Extra::default()
+                },
             );
             w.push_ref_at(parent, &import_path, imports_kind, spec);
         };
@@ -907,7 +1029,12 @@ impl<'t> Walker<'t> {
                 callee_name = c[1].to_string();
             }
             let from = self.top_row();
-            self.push_ref_at(from, &callee_name.clone(), edge_kind_index("calls").unwrap(), node);
+            self.push_ref_at(
+                from,
+                &callee_name.clone(),
+                edge_kind_index("calls").unwrap(),
+                node,
+            );
         }
     }
 
@@ -935,7 +1062,12 @@ impl<'t> Walker<'t> {
         }
         if !go_type.is_empty() {
             let from = self.top_row();
-            self.push_ref_at(from, &go_type, edge_kind_index("instantiates").unwrap(), node);
+            self.push_ref_at(
+                from,
+                &go_type,
+                edge_kind_index("instantiates").unwrap(),
+                node,
+            );
         }
     }
 
@@ -1038,7 +1170,13 @@ impl<'t> Walker<'t> {
 
     /// collectGoTypeNames (languages/go.ts). `qualified`: the name of a
     /// `pkg.Name`, which is that package's whatever this one declares.
-    fn collect_type_names(&self, node: Node<'t>, declared: &HashSet<&str>, qualified: bool, out: &mut Vec<Node<'t>>) {
+    fn collect_type_names(
+        &self,
+        node: Node<'t>,
+        declared: &HashSet<&str>,
+        qualified: bool,
+        out: &mut Vec<Node<'t>>,
+    ) {
         stack_guard!();
         if node.kind() == "type_identifier" {
             let text = self.text(node);
@@ -1063,7 +1201,9 @@ impl<'t> Walker<'t> {
         stack_guard!();
         let extends_kind = edge_kind_index("extends").unwrap();
         for i in 0..node.named_child_count() {
-            let Some(child) = node.named_child(i) else { continue };
+            let Some(child) = node.named_child(i) else {
+                continue;
+            };
             match child.kind() {
                 "type_elem" => {
                     let mut terms = (0..child.named_child_count())
@@ -1083,7 +1223,9 @@ impl<'t> Walker<'t> {
                         .filter_map(|j| child.named_child(j))
                         .any(|c| c.kind() == "field_identifier");
                     if !has_field_identifier {
-                        if let Some(type_id) = self.embedded_type_name(child.child_by_field_name("type")) {
+                        if let Some(type_id) =
+                            self.embedded_type_name(child.child_by_field_name("type"))
+                        {
                             let name = self.text(type_id).to_string();
                             self.push_ref_at(class_row, &name, extends_kind, type_id);
                         }
@@ -1118,7 +1260,12 @@ impl<'t> Walker<'t> {
         if node.kind() == "type_identifier" {
             let type_name = self.text(node).to_string();
             if !type_name.is_empty() && !is_builtin_type(&type_name) {
-                self.push_ref_at(from_row, &type_name, edge_kind_index("references").unwrap(), node);
+                self.push_ref_at(
+                    from_row,
+                    &type_name,
+                    edge_kind_index("references").unwrap(),
+                    node,
+                );
             }
             return;
         }
@@ -1171,15 +1318,13 @@ impl<'t> Walker<'t> {
                 }
             }
             "value" => {
-                let v = node
-                    .child_by_field_name("value")
-                    .or_else(|| {
-                        if node.named_child_count() > 0 {
-                            node.named_child(node.named_child_count() - 1)
-                        } else {
-                            None
-                        }
-                    });
+                let v = node.child_by_field_name("value").or_else(|| {
+                    if node.named_child_count() > 0 {
+                        node.named_child(node.named_child_count() - 1)
+                    } else {
+                        None
+                    }
+                });
                 if let Some(v) = v {
                     values.push(v);
                 }
@@ -1228,17 +1373,21 @@ impl<'t> Walker<'t> {
             // word, so it never drops one: `raft.None` is a candidate even
             // though a bare `None` is not.
             "selector_expression" => {
-                let (Some(operand), Some(field)) =
-                    (v.child_by_field_name("operand"), v.child_by_field_name("field"))
-                else {
+                let (Some(operand), Some(field)) = (
+                    v.child_by_field_name("operand"),
+                    v.child_by_field_name("field"),
+                ) else {
                     return;
                 };
                 let name = format!("{}.{}", self.text(operand), self.text(field));
                 if !name.split('.').all(|part| {
-                    !part.is_empty() && part.chars().enumerate().all(|(i, c)| {
-                        c == '_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit())
-                    })
-                }) { return; }
+                    !part.is_empty()
+                        && part.chars().enumerate().all(|(i, c)| {
+                            c == '_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit())
+                        })
+                }) {
+                    return;
+                }
                 let p = field.start_position();
                 self.fn_ref_cands.push(Cand {
                     from,
@@ -1272,8 +1421,11 @@ impl<'t> Walker<'t> {
         if depth > 0
             && matches!(
                 node.kind(),
-                "function_declaration" | "arrow_function" | "function_expression"
-                    | "lambda_literal" | "lambda_expression"
+                "function_declaration"
+                    | "arrow_function"
+                    | "function_expression"
+                    | "lambda_literal"
+                    | "lambda_expression"
             )
         {
             return;
@@ -1308,7 +1460,11 @@ impl<'t> Walker<'t> {
         let mut seen: HashSet<(String, String, Option<usize>)> = HashSet::new();
         for (i, c) in survivors.into_iter().enumerate() {
             let scope = scopes.get(&i).copied();
-            if !seen.insert((self.node_ids[c.from as usize].clone(), c.name.clone(), scope)) {
+            if !seen.insert((
+                self.node_ids[c.from as usize].clone(),
+                c.name.clone(),
+                scope,
+            )) {
                 continue;
             }
             let column = util::col16(self.src, &self.line_starts, c.row, c.column_byte);
@@ -1341,7 +1497,10 @@ impl<'t> Walker<'t> {
         // Shadow prune — Go declarator shapes: const_spec/var_spec (name =
         // first child) and short_var_declaration (left / expression_list).
         let mut decl_counts: HashMap<&str, u32> = HashMap::new();
-        let bump = |decl_counts: &mut HashMap<&'t str, u32>, name_node: Option<Node<'t>>, src: &'t str, targets: &HashMap<String, u32>| {
+        let bump = |decl_counts: &mut HashMap<&'t str, u32>,
+                    name_node: Option<Node<'t>>,
+                    src: &'t str,
+                    targets: &HashMap<String, u32>| {
             if let Some(n) = name_node {
                 if matches!(n.kind(), "identifier" | "simple_identifier") {
                     let nm = &src[n.byte_range()];
@@ -1359,7 +1518,9 @@ impl<'t> Walker<'t> {
             }
             dvisited += 1;
             match n.kind() {
-                "const_spec" | "var_spec" => bump(&mut decl_counts, n.named_child(0), self.src, &targets),
+                "const_spec" | "var_spec" => {
+                    bump(&mut decl_counts, n.named_child(0), self.src, &targets)
+                }
                 "short_var_declaration" => {
                     let left = n
                         .child_by_field_name("left")
@@ -1405,7 +1566,10 @@ impl<'t> Walker<'t> {
                     break;
                 }
                 visited += 1;
-                if matches!(n.kind(), "identifier" | "constant" | "name" | "simple_identifier") {
+                if matches!(
+                    n.kind(),
+                    "identifier" | "constant" | "name" | "simple_identifier"
+                ) {
                     let ref_name = self.text(n);
                     if let Some(&target_row) = targets.get(ref_name) {
                         let target_id = self.node_ids[target_row as usize].as_str();
@@ -1442,24 +1606,68 @@ impl<'t> Walker<'t> {
 fn is_stoplisted(name: &str) -> bool {
     matches!(
         name,
-        "this" | "self" | "super" | "null" | "nil" | "true" | "false" | "undefined" | "new"
-            | "NULL" | "nullptr" | "None"
+        "this"
+            | "self"
+            | "super"
+            | "null"
+            | "nil"
+            | "true"
+            | "false"
+            | "undefined"
+            | "new"
+            | "NULL"
+            | "nullptr"
+            | "None"
     )
 }
 
 fn is_literal_receiver(kind: &str) -> bool {
     matches!(
         kind,
-        "string" | "string_literal" | "interpreted_string_literal" | "raw_string_literal"
-            | "template_string" | "concatenated_string" | "formatted_string" | "f_string"
-            | "line_string_literal" | "string_content" | "heredoc_body"
-            | "number" | "number_literal" | "integer" | "integer_literal" | "float"
-            | "float_literal" | "int_literal" | "decimal_integer_literal" | "real_literal"
-            | "char_literal" | "character_literal" | "rune_literal" | "regex" | "regex_literal"
-            | "true" | "false" | "boolean_literal" | "bool_literal" | "none" | "null" | "nil"
-            | "null_literal" | "undefined"
-            | "list" | "list_literal" | "array" | "array_literal" | "array_creation_expression"
-            | "dictionary" | "dict_literal" | "object" | "tuple" | "set"
+        "string"
+            | "string_literal"
+            | "interpreted_string_literal"
+            | "raw_string_literal"
+            | "template_string"
+            | "concatenated_string"
+            | "formatted_string"
+            | "f_string"
+            | "line_string_literal"
+            | "string_content"
+            | "heredoc_body"
+            | "number"
+            | "number_literal"
+            | "integer"
+            | "integer_literal"
+            | "float"
+            | "float_literal"
+            | "int_literal"
+            | "decimal_integer_literal"
+            | "real_literal"
+            | "char_literal"
+            | "character_literal"
+            | "rune_literal"
+            | "regex"
+            | "regex_literal"
+            | "true"
+            | "false"
+            | "boolean_literal"
+            | "bool_literal"
+            | "none"
+            | "null"
+            | "nil"
+            | "null_literal"
+            | "undefined"
+            | "list"
+            | "list_literal"
+            | "array"
+            | "array_literal"
+            | "array_creation_expression"
+            | "dictionary"
+            | "dict_literal"
+            | "object"
+            | "tuple"
+            | "set"
     )
 }
 
@@ -1467,15 +1675,72 @@ fn is_literal_receiver(kind: &str) -> bool {
 fn is_builtin_type(name: &str) -> bool {
     matches!(
         name,
-        "string" | "number" | "boolean" | "void" | "null" | "undefined" | "never" | "any"
-            | "unknown" | "object" | "symbol" | "bigint" | "true" | "false"
-            | "str" | "bool" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize"
-            | "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "f32" | "f64" | "char"
-            | "int" | "long" | "short" | "byte" | "float" | "double"
-            | "int8" | "int16" | "int32" | "int64" | "uint8" | "uint16" | "uint32" | "uint64"
-            | "float32" | "float64" | "complex64" | "complex128" | "rune" | "error"
-            | "Int" | "Long" | "Short" | "Byte" | "Float" | "Double" | "Boolean" | "Char"
-            | "Unit" | "String" | "Any" | "AnyRef" | "AnyVal" | "Nothing" | "Null"
+        "string"
+            | "number"
+            | "boolean"
+            | "void"
+            | "null"
+            | "undefined"
+            | "never"
+            | "any"
+            | "unknown"
+            | "object"
+            | "symbol"
+            | "bigint"
+            | "true"
+            | "false"
+            | "str"
+            | "bool"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "f32"
+            | "f64"
+            | "char"
+            | "int"
+            | "long"
+            | "short"
+            | "byte"
+            | "float"
+            | "double"
+            | "int8"
+            | "int16"
+            | "int32"
+            | "int64"
+            | "uint8"
+            | "uint16"
+            | "uint32"
+            | "uint64"
+            | "float32"
+            | "float64"
+            | "complex64"
+            | "complex128"
+            | "rune"
+            | "error"
+            | "Int"
+            | "Long"
+            | "Short"
+            | "Byte"
+            | "Float"
+            | "Double"
+            | "Boolean"
+            | "Char"
+            | "Unit"
+            | "String"
+            | "Any"
+            | "AnyRef"
+            | "AnyVal"
+            | "Nothing"
+            | "Null"
     )
 }
 
@@ -1484,9 +1749,28 @@ fn is_builtin_type(name: &str) -> bool {
 fn is_go_predeclared_type(name: &str) -> bool {
     matches!(
         name,
-        "any" | "bool" | "byte" | "comparable" | "complex64" | "complex128" | "error" | "float32"
-            | "float64" | "int" | "int8" | "int16" | "int32" | "int64" | "rune" | "string" | "uint"
-            | "uint8" | "uint16" | "uint32" | "uint64" | "uintptr"
+        "any"
+            | "bool"
+            | "byte"
+            | "comparable"
+            | "complex64"
+            | "complex128"
+            | "error"
+            | "float32"
+            | "float64"
+            | "int"
+            | "int8"
+            | "int16"
+            | "int32"
+            | "int64"
+            | "rune"
+            | "string"
+            | "uint"
+            | "uint8"
+            | "uint16"
+            | "uint32"
+            | "uint64"
+            | "uintptr"
     )
 }
 
@@ -1543,7 +1827,11 @@ fn go_fn_ref_site<'t>(node: Node<'t>) -> (usize, Option<Node<'t>>) {
 /// type-switch variables, and a select case's received value. A name the
 /// function's own receiver, parameters or results bind is left out: those
 /// cover its whole body. Mirrors goLocalBindings.
-fn go_local_bindings<'t>(units: &[Node<'t>], names: &HashSet<&str>, src: &str) -> HashSet<(usize, String)> {
+fn go_local_bindings<'t>(
+    units: &[Node<'t>],
+    names: &HashSet<&str>,
+    src: &str,
+) -> HashSet<(usize, String)> {
     let mut out: HashSet<(usize, String)> = HashSet::new();
     for unit in units {
         let mut bind = |id: Option<Node<'t>>| {
@@ -1557,13 +1845,18 @@ fn go_local_bindings<'t>(units: &[Node<'t>], names: &HashSet<&str>, src: &str) -
             }
         };
         let declares = |n: Node<'t>| {
-            (0..n.child_count()).any(|i| n.child(i).map_or(false, |c| !c.is_named() && c.kind() == ":="))
+            (0..n.child_count()).any(|i| {
+                n.child(i)
+                    .map_or(false, |c| !c.is_named() && c.kind() == ":=")
+            })
         };
         let mut stack: Vec<Node<'t>> = vec![*unit];
         while let Some(n) = stack.pop() {
             let list = match n.kind() {
                 "short_var_declaration" => n.child_by_field_name("left"),
-                "range_clause" | "receive_statement" if declares(n) => n.child_by_field_name("left"),
+                "range_clause" | "receive_statement" if declares(n) => {
+                    n.child_by_field_name("left")
+                }
                 "type_switch_statement" => n.child_by_field_name("alias"),
                 _ => None,
             };
@@ -1572,7 +1865,13 @@ fn go_local_bindings<'t>(units: &[Node<'t>], names: &HashSet<&str>, src: &str) -
                     bind(list.named_child(i));
                 }
             }
-            if matches!(n.kind(), "var_spec" | "const_spec" | "parameter_declaration" | "variadic_parameter_declaration") {
+            if matches!(
+                n.kind(),
+                "var_spec"
+                    | "const_spec"
+                    | "parameter_declaration"
+                    | "variadic_parameter_declaration"
+            ) {
                 let mut cursor = n.walk();
                 for c in n.children_by_field_name("name", &mut cursor) {
                     bind(Some(c));
@@ -1585,13 +1884,20 @@ fn go_local_bindings<'t>(units: &[Node<'t>], names: &HashSet<&str>, src: &str) -
             }
         }
         for field in ["receiver", "parameters", "result"] {
-            let Some(list) = unit.child_by_field_name(field) else { continue };
+            let Some(list) = unit.child_by_field_name(field) else {
+                continue;
+            };
             if list.kind() != "parameter_list" {
                 continue;
             }
             for i in 0..list.named_child_count() {
-                let Some(p) = list.named_child(i) else { continue };
-                if !matches!(p.kind(), "parameter_declaration" | "variadic_parameter_declaration") {
+                let Some(p) = list.named_child(i) else {
+                    continue;
+                };
+                if !matches!(
+                    p.kind(),
+                    "parameter_declaration" | "variadic_parameter_declaration"
+                ) {
                     continue;
                 }
                 let mut cursor = p.walk();
@@ -1610,13 +1916,20 @@ fn go_local_bindings<'t>(units: &[Node<'t>], names: &HashSet<&str>, src: &str) -
 /// one per function, each with the id of the scope it sits in: names a
 /// function uses at least twice and binds itself. Only those candidates'
 /// positions are read from the tree. Mirrors goScopedFnRefScopes.
-fn go_scoped_fn_ref_scopes<'t>(cands: &[Cand<'t>], node_ids: &[String], src: &str) -> HashMap<usize, usize> {
+fn go_scoped_fn_ref_scopes<'t>(
+    cands: &[Cand<'t>],
+    node_ids: &[String],
+    src: &str,
+) -> HashMap<usize, usize> {
     let mut groups: HashMap<(&str, &str), Vec<usize>> = HashMap::new();
     for (i, c) in cands.iter().enumerate() {
         if c.name.contains('.') {
             continue;
         }
-        groups.entry((node_ids[c.from as usize].as_str(), c.name.as_str())).or_default().push(i);
+        groups
+            .entry((node_ids[c.from as usize].as_str(), c.name.as_str()))
+            .or_default()
+            .push(i);
     }
     let mut sites: Vec<(usize, usize, Node<'t>)> = Vec::new();
     let mut units: Vec<Node<'t>> = Vec::new();

@@ -26,8 +26,18 @@ pub struct Candidate {
 fn stoplisted(name: &str) -> bool {
     matches!(
         name,
-        "this" | "self" | "super" | "null" | "nil" | "true" | "false" | "undefined" | "new"
-            | "NULL" | "nullptr" | "None"
+        "this"
+            | "self"
+            | "super"
+            | "null"
+            | "nil"
+            | "true"
+            | "false"
+            | "undefined"
+            | "new"
+            | "NULL"
+            | "nullptr"
+            | "None"
     )
 }
 
@@ -122,7 +132,9 @@ pub fn capture(container: Node, mode: Mode, src: &str) -> Vec<(Candidate, Mode)>
 /// `this.<member>` member_expression special form (object EXACTLY `this`).
 fn normalize<'t>(node: Node<'t>, src: &str) -> Vec<(String, Node<'t>)> {
     match node.kind() {
-        "identifier" | "shorthand_property_identifier" => vec![(src[node.byte_range()].to_string(), node)],
+        "identifier" | "shorthand_property_identifier" => {
+            vec![(src[node.byte_range()].to_string(), node)]
+        }
         "member_expression" => {
             let obj = node.child_by_field_name("object");
             let prop = node.child_by_field_name("property");

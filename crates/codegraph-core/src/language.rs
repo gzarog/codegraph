@@ -55,7 +55,14 @@ string_enum!(
 impl Language {
     /// TypeScript/JavaScript family (shares import semantics).
     pub fn is_js_family(self) -> bool {
-        matches!(self, Language::TypeScript | Language::JavaScript | Language::Tsx | Language::Jsx | Language::ArkTs)
+        matches!(
+            self,
+            Language::TypeScript
+                | Language::JavaScript
+                | Language::Tsx
+                | Language::Jsx
+                | Language::ArkTs
+        )
     }
 }
 
@@ -128,10 +135,13 @@ pub fn is_erlang_app_file(path: &str) -> bool {
 
 /// Whether `path` (project-relative, `/`-separated) is a file CodeGraph indexes.
 pub fn is_source_file(path: &str) -> bool {
-    is_play_routes_file(path) || is_erlang_app_file(path) || language_for_extension(&extension(path)).is_some()
+    is_play_routes_file(path)
+        || is_erlang_app_file(path)
+        || language_for_extension(&extension(path)).is_some()
 }
 
-static FLOW_LEAD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?:\s*(?://[^\n]*|/\*(?s:.)*?\*/))*").unwrap());
+static FLOW_LEAD: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(?:\s*(?://[^\n]*|/\*(?s:.)*?\*/))*").unwrap());
 static FLOW: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"@flow\b").unwrap());
 static NOFLOW: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"@noflow\b").unwrap());
 static CPP_SIGNAL: LazyLock<Regex> = LazyLock::new(|| {
@@ -140,8 +150,10 @@ static CPP_SIGNAL: LazyLock<Regex> = LazyLock::new(|| {
 static CPP_BASE_CLAUSE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b(?:class|struct)\s+\w+\s*(?:final\s*)?:\s*(?:(?:public|protected|private|virtual)\s+)*[A-Za-z_][\w:]*(?:\s*<[^{};]*>)?\s*[{,]").unwrap()
 });
-static C_COMMENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)/\*.*?\*/|//[^\n]*").unwrap());
-static OBJC_SIGNAL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"@(?:interface|implementation|protocol|synthesize)\b").unwrap());
+static C_COMMENT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)/\*.*?\*/|//[^\n]*").unwrap());
+static OBJC_SIGNAL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"@(?:interface|implementation|protocol|synthesize)\b").unwrap());
 static PHP_OPEN_TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)<\?(?:php|=)").unwrap());
 static PASCAL_INCLUDE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?im)^[ \t\x{FEFF}]*(?:\{\$[a-z]|\{%MainUnit\b|(?:class[ \t]+)?(?:procedure|constructor|destructor|function)[ \t]+[a-z_][\w.]*[^;\n]*;|unit[ \t]+[a-z_][\w.]*[ \t]*;|uses\s+[a-z_][\w.]*(?:\s*,\s*[a-z_][\w.]*)*\s*;)").unwrap()
@@ -169,7 +181,8 @@ pub fn has_flow_pragma(source: &str) -> bool {
 }
 
 fn looks_like_cpp(source: &str) -> bool {
-    CPP_SIGNAL.is_match(sample(source, 8192)) || CPP_BASE_CLAUSE.is_match(&C_COMMENT.replace_all(source, " "))
+    CPP_SIGNAL.is_match(sample(source, 8192))
+        || CPP_BASE_CLAUSE.is_match(&C_COMMENT.replace_all(source, " "))
 }
 
 fn looks_like_objc(source: &str) -> bool {
@@ -215,13 +228,28 @@ mod tests {
     fn detects_by_extension_and_content() {
         assert_eq!(detect_language("src/a.ts", None), Language::TypeScript);
         assert_eq!(detect_language("src/A.JAVA", None), Language::Java);
-        assert_eq!(detect_language("x.h", Some("namespace foo {}")), Language::Cpp);
-        assert_eq!(detect_language("x.h", Some("@interface Foo\n@end")), Language::ObjC);
+        assert_eq!(
+            detect_language("x.h", Some("namespace foo {}")),
+            Language::Cpp
+        );
+        assert_eq!(
+            detect_language("x.h", Some("@interface Foo\n@end")),
+            Language::ObjC
+        );
         assert_eq!(detect_language("x.h", Some("int f(void);")), Language::C);
-        assert_eq!(detect_language("a.js", Some("// @flow\nconst x = 1")), Language::Tsx);
+        assert_eq!(
+            detect_language("a.js", Some("// @flow\nconst x = 1")),
+            Language::Tsx
+        );
         assert_eq!(detect_language("conf/routes", None), Language::Yaml);
-        assert_eq!(detect_language("defs.inc", Some("unit Foo;\n")), Language::Pascal);
-        assert_eq!(detect_language("defs.inc", Some("<?php echo 1;")), Language::Php);
+        assert_eq!(
+            detect_language("defs.inc", Some("unit Foo;\n")),
+            Language::Pascal
+        );
+        assert_eq!(
+            detect_language("defs.inc", Some("<?php echo 1;")),
+            Language::Php
+        );
         assert!(is_source_file("a/b.rs"));
         assert!(!is_source_file("README"));
     }

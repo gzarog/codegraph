@@ -83,7 +83,10 @@ fn js_multiline_strip(s: &str, pat: &Regex) -> String {
     let mut pos = 0usize;
     while pos <= s.len() {
         let at_line_start = pos == 0
-            || s[..pos].chars().next_back().is_some_and(is_js_line_terminator);
+            || s[..pos]
+                .chars()
+                .next_back()
+                .is_some_and(is_js_line_terminator);
         if at_line_start {
             if let Some(m) = pat.find(&s[pos..]) {
                 if !m.is_empty() {
@@ -214,10 +217,13 @@ fn preceding_docstring_with(
         // line above it, and each one before joins while it ends on the line
         // the next one starts, or the line before that.
         let mut start = comments.len();
-        if start > first && comments[start - 1].end_position().row + 1 == anchor.start_position().row {
+        if start > first
+            && comments[start - 1].end_position().row + 1 == anchor.start_position().row
+        {
             start -= 1;
             while start > first
-                && comments[start - 1].end_position().row + 1 >= comments[start].start_position().row
+                && comments[start - 1].end_position().row + 1
+                    >= comments[start].start_position().row
             {
                 start -= 1;
             }
@@ -292,10 +298,7 @@ mod tests {
             clean_comment_markers("/**\r\n * Class docs.\r\n * Multi-line.\r\n */"),
             "Class docs.\rMulti-line."
         );
-        assert_eq!(
-            clean_comment_markers("// a\r\n// b"),
-            "a\r\nb"
-        );
+        assert_eq!(clean_comment_markers("// a\r\n// b"), "a\r\nb");
     }
 
     /// A `step_over` kind is passed without ending the run, and the comments
@@ -337,12 +340,17 @@ mod tests {
                 .filter_map(|i| root.named_child(i))
                 .find(|n| {
                     n.kind() == "function_declaration"
-                        && n.child_by_field_name("name").map(|id| &src[id.byte_range()]) == Some(name)
+                        && n.child_by_field_name("name")
+                            .map(|id| &src[id.byte_range()])
+                            == Some(name)
                 })
                 .expect(name)
         };
         let skipping_trailing = |n| preceding_docstring_with(n, src, &[], true, false, false);
-        assert_eq!(preceding_docstring(func("f"), src).as_deref(), Some("a\nb\nc"));
+        assert_eq!(
+            preceding_docstring(func("f"), src).as_deref(),
+            Some("a\nb\nc")
+        );
         assert_eq!(skipping_trailing(func("f")).as_deref(), Some("c"));
         assert_eq!(preceding_docstring(func("g"), src).as_deref(), Some("d"));
         assert_eq!(skipping_trailing(func("g")), None);
@@ -365,12 +373,17 @@ mod tests {
                 .filter_map(|i| root.named_child(i))
                 .find(|n| {
                     n.kind() == "function_declaration"
-                        && n.child_by_field_name("name").map(|id| &src[id.byte_range()]) == Some(name)
+                        && n.child_by_field_name("name")
+                            .map(|id| &src[id.byte_range()])
+                            == Some(name)
                 })
                 .expect(name)
         };
         let skipping_detached = |n| preceding_docstring_with(n, src, &[], false, true, false);
-        assert_eq!(preceding_docstring(func("f"), src).as_deref(), Some("a\nb\nc\nd"));
+        assert_eq!(
+            preceding_docstring(func("f"), src).as_deref(),
+            Some("a\nb\nc\nd")
+        );
         assert_eq!(skipping_detached(func("f")).as_deref(), Some("b\nc\nd"));
         assert_eq!(preceding_docstring(func("g"), src).as_deref(), Some("e"));
         assert_eq!(skipping_detached(func("g")), None);
@@ -382,10 +395,26 @@ mod tests {
     /// the near misses it keeps.
     #[test]
     fn recognizes_go_directives() {
-        for directive in ["//go:embed x", "//nolint:errcheck", "//a1:b", "//line f.go:1", "//extern f", "//export F"] {
+        for directive in [
+            "//go:embed x",
+            "//nolint:errcheck",
+            "//a1:b",
+            "//line f.go:1",
+            "//extern f",
+            "//export F",
+        ] {
             assert!(is_directive(directive), "{directive}");
         }
-        for comment in ["// nolint:errcheck", "//TODO: x", "//https://go.dev", "//go:", "//:x", "//line", "/*go:embed x*/", "//go-x:y"] {
+        for comment in [
+            "// nolint:errcheck",
+            "//TODO: x",
+            "//https://go.dev",
+            "//go:",
+            "//:x",
+            "//line",
+            "/*go:embed x*/",
+            "//go-x:y",
+        ] {
             assert!(!is_directive(comment), "{comment}");
         }
     }
@@ -406,13 +435,24 @@ mod tests {
                 .filter_map(|i| root.named_child(i))
                 .find(|n| {
                     n.kind() == "function_declaration"
-                        && n.child_by_field_name("name").map(|id| &src[id.byte_range()]) == Some(name)
+                        && n.child_by_field_name("name")
+                            .map(|id| &src[id.byte_range()])
+                            == Some(name)
                 })
                 .expect(name)
         };
-        assert_eq!(preceding_docstring(func("f"), src).as_deref(), Some("a\ngo:noinline\nb"));
-        assert_eq!(preceding_go_doc_comment(func("f"), src).as_deref(), Some("a\nb"));
-        assert_eq!(preceding_docstring(func("g"), src).as_deref(), Some("nolint:unparam"));
+        assert_eq!(
+            preceding_docstring(func("f"), src).as_deref(),
+            Some("a\ngo:noinline\nb")
+        );
+        assert_eq!(
+            preceding_go_doc_comment(func("f"), src).as_deref(),
+            Some("a\nb")
+        );
+        assert_eq!(
+            preceding_docstring(func("g"), src).as_deref(),
+            Some("nolint:unparam")
+        );
         assert_eq!(preceding_go_doc_comment(func("g"), src), None);
     }
 }

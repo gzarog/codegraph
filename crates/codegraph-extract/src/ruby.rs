@@ -34,8 +34,18 @@ const MAX_VALUE_REF_NODES: usize = 20_000;
 fn is_stoplisted(name: &str) -> bool {
     matches!(
         name,
-        "this" | "self" | "super" | "null" | "nil" | "true" | "false" | "undefined" | "new"
-            | "NULL" | "nullptr" | "None"
+        "this"
+            | "self"
+            | "super"
+            | "null"
+            | "nil"
+            | "true"
+            | "false"
+            | "undefined"
+            | "new"
+            | "NULL"
+            | "nullptr"
+            | "None"
     )
 }
 
@@ -44,7 +54,10 @@ fn is_ruby_hook_call(name: &str) -> bool {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| Regex::new(r"^(skip_)?(before|after|around)_[a-z_]+$").unwrap());
     re.is_match(name)
-        || matches!(name, "validate" | "set_callback" | "helper_method" | "rescue_from")
+        || matches!(
+            name,
+            "validate" | "set_callback" | "helper_method" | "rescue_from"
+        )
 }
 
 /// The hook-DSL symbol shape (`/^[A-Za-z_][A-Za-z0-9_?!]*$/`).
@@ -78,7 +91,11 @@ fn posix_normalize(p: &str) -> String {
         joined = format!("/{joined}");
     }
     if joined.is_empty() || joined == "/" {
-        return if is_abs { "/".to_string() } else { ".".to_string() };
+        return if is_abs {
+            "/".to_string()
+        } else {
+            ".".to_string()
+        };
     }
     if had_trailing {
         joined.push('/');
@@ -191,7 +208,11 @@ pub fn extract(file_path: &str, source: &str) -> Result<EmitOut, String> {
         extra_json: NONE_STR,
     });
     w.node_ids.push(ids::file_node_id(file_path));
-    w.stack.push(Scope { row: 0, kind: "file", name: base_name.to_string() });
+    w.stack.push(Scope {
+        row: 0,
+        kind: "file",
+        name: base_name.to_string(),
+    });
 
     w.visit_node(tree.root_node());
     w.flush_fn_ref_candidates();
@@ -217,10 +238,20 @@ impl<'t> Walker<'t> {
         node.start_position().row as u32 + 1
     }
     fn col_of(&self, node: Node) -> u32 {
-        util::col16(self.src, &self.line_starts, node.start_position().row, node.start_byte())
+        util::col16(
+            self.src,
+            &self.line_starts,
+            node.start_position().row,
+            node.start_byte(),
+        )
     }
     fn end_col_of(&self, node: Node) -> u32 {
-        util::col16(self.src, &self.line_starts, node.end_position().row, node.end_byte())
+        util::col16(
+            self.src,
+            &self.line_starts,
+            node.end_position().row,
+            node.end_byte(),
+        )
     }
     fn top_row(&self) -> u32 {
         self.stack.last().map(|s| s.row).unwrap_or(0)
@@ -228,7 +259,12 @@ impl<'t> Walker<'t> {
     fn inside_class_like(&self) -> bool {
         self.stack
             .last()
-            .map(|s| matches!(s.kind, "class" | "struct" | "interface" | "trait" | "enum" | "module"))
+            .map(|s| {
+                matches!(
+                    s.kind,
+                    "class" | "struct" | "interface" | "trait" | "enum" | "module"
+                )
+            })
             .unwrap_or(false)
     }
 
@@ -253,18 +289,32 @@ impl<'t> Walker<'t> {
     }
 
     fn push_ref_at(&mut self, from_row: u32, name: &str, kind_code: u8, node: Node) {
-        self.push_ref(from_row, name, kind_code, self.line_of(node), self.col_of(node));
+        self.push_ref(
+            from_row,
+            name,
+            kind_code,
+            self.line_of(node),
+            self.col_of(node),
+        );
     }
 
     // --- createNode ------------------------------------------------------------
 
-    fn create_node(&mut self, kind: &'static str, name: &str, node: Node<'t>, extra: Extra) -> Option<u32> {
+    fn create_node(
+        &mut self,
+        kind: &'static str,
+        name: &str,
+        node: Node<'t>,
+        extra: Extra,
+    ) -> Option<u32> {
         if name.is_empty() {
             return None;
         }
         let start_line = self.line_of(node);
         let column = self.col_of(node);
-        let id = self.node_id_allocator.generate(self.file_path, kind, name, start_line, column);
+        let id = self
+            .node_id_allocator
+            .generate(self.file_path, kind, name, start_line, column);
         let end_line = node.end_position().row as u32 + 1; // no resolveBody for ruby
 
         let qualified = {
@@ -345,7 +395,11 @@ impl<'t> Walker<'t> {
             }
         }
         if matches!(kind, "function" | "method" | "constant" | "variable") {
-            self.value_scopes.push(ValueScope { row, node, name: name.to_string() });
+            self.value_scopes.push(ValueScope {
+                row,
+                node,
+                name: name.to_string(),
+            });
         }
         Some(row)
     }
@@ -356,7 +410,10 @@ impl<'t> Walker<'t> {
         }
         for i in 0..node.named_child_count() {
             if let Some(c) = node.named_child(i) {
-                if matches!(c.kind(), "identifier" | "type_identifier" | "simple_identifier" | "constant") {
+                if matches!(
+                    c.kind(),
+                    "identifier" | "type_identifier" | "simple_identifier" | "constant"
+                ) {
                     return self.text(c).to_string();
                 }
             }
@@ -412,7 +469,9 @@ impl<'t> Walker<'t> {
                         let line = self.line_of(node);
                         let col = self.col_of(node);
                         for i in 0..args.named_child_count() {
-                            let Some(arg) = args.named_child(i) else { continue };
+                            let Some(arg) = args.named_child(i) else {
+                                continue;
+                            };
                             // `Mod` is constant, `Foo::Bar` is scope_resolution;
                             // `extend self` / dynamic args are skipped. Unlike
                             // every other extraction ref, the hook sets
@@ -443,13 +502,19 @@ impl<'t> Walker<'t> {
         if kind != "module" {
             return false;
         }
-        let Some(name_node) = node.child_by_field_name("name") else { return false };
+        let Some(name_node) = node.child_by_field_name("name") else {
+            return false;
+        };
         // `module A::B` keeps the scope_resolution text verbatim as the name.
         let name = self.text(name_node).to_string();
         let Some(row) = self.create_node("module", &name, node, Extra::default()) else {
             return false;
         };
-        self.stack.push(Scope { row, kind: "module", name });
+        self.stack.push(Scope {
+            row,
+            kind: "module",
+            name,
+        });
         if let Some(body) = node.child_by_field_name("body") {
             for i in 0..body.named_child_count() {
                 if let Some(c) = body.named_child(i) {
@@ -529,7 +594,9 @@ impl<'t> Walker<'t> {
 
     /// isClassScopeConstantAssignment (tree-sitter.ts:1508).
     fn is_class_scope_constant_assignment(&self, node: Node) -> bool {
-        let left = node.child_by_field_name("left").or_else(|| node.named_child(0));
+        let left = node
+            .child_by_field_name("left")
+            .or_else(|| node.named_child(0));
         left.map(|l| l.kind() == "constant").unwrap_or(false)
     }
 
@@ -626,9 +693,15 @@ impl<'t> Walker<'t> {
             visibility: Some(self.visibility_of(node)),
             is_static: Some(is_class_method(node)),
         };
-        let Some(row) = self.create_node("function", &name, node, extra) else { return };
+        let Some(row) = self.create_node("function", &name, node, extra) else {
+            return;
+        };
         // (ruby ∉ TYPE_ANNOTATION_LANGUAGES; decorators are a structural no-op)
-        self.stack.push(Scope { row, kind: "function", name });
+        self.stack.push(Scope {
+            row,
+            kind: "function",
+            name,
+        });
         if let Some(body) = node.child_by_field_name("body") {
             self.visit_function_body(body);
         }
@@ -645,8 +718,14 @@ impl<'t> Walker<'t> {
             visibility: Some(self.visibility_of(node)),
             is_static: Some(is_class_method(node)),
         };
-        let Some(row) = self.create_node("method", &name, node, extra) else { return };
-        self.stack.push(Scope { row, kind: "method", name });
+        let Some(row) = self.create_node("method", &name, node, extra) else {
+            return;
+        };
+        self.stack.push(Scope {
+            row,
+            kind: "method",
+            name,
+        });
         if let Some(body) = node.child_by_field_name("body") {
             self.visit_function_body(body);
         }
@@ -662,14 +741,18 @@ impl<'t> Walker<'t> {
             visibility: Some(self.visibility_of(node)),
             ..Extra::default()
         };
-        let Some(row) = self.create_node("class", &name, node, extra) else { return };
+        let Some(row) = self.create_node("class", &name, node, extra) else {
+            return;
+        };
 
         // extractInheritance: the `superclass` clause — ONE extends ref, FULL
         // text (scope_resolution / even `Struct.new(:a)` expressions verbatim),
         // positioned at the type child.
         let extends_kind = edge_kind_index("extends").unwrap();
         for i in 0..node.named_child_count() {
-            let Some(child) = node.named_child(i) else { continue };
+            let Some(child) = node.named_child(i) else {
+                continue;
+            };
             if child.kind() == "superclass" {
                 if let Some(target) = child.named_child(0) {
                     let tname = self.text(target).to_string();
@@ -678,7 +761,11 @@ impl<'t> Walker<'t> {
             }
         }
 
-        self.stack.push(Scope { row, kind: "class", name });
+        self.stack.push(Scope {
+            row,
+            kind: "class",
+            name,
+        });
         // Bodiless `class X; end` has no body field → the class node itself
         // is walked (name/superclass children revisit harmlessly).
         let body = node.child_by_field_name("body").unwrap_or(node);
@@ -696,15 +783,28 @@ impl<'t> Walker<'t> {
     /// `= <first 100 utf16 units>` initializer signature.
     fn extract_variable(&mut self, node: Node<'t>) {
         let docstring = preceding_docstring(node, self.src);
-        let left = node.child_by_field_name("left").or_else(|| node.named_child(0));
-        let right = node.child_by_field_name("right").or_else(|| node.named_child(1));
+        let left = node
+            .child_by_field_name("left")
+            .or_else(|| node.named_child(0));
+        let right = node
+            .child_by_field_name("right")
+            .or_else(|| node.named_child(1));
         let Some(left) = left else { return };
         if !matches!(left.kind(), "identifier" | "constant") {
             return;
         }
         let name = self.text(left).to_string();
         let signature = right.map(|r| util::init_signature(self.text(r)));
-        self.create_node("variable", &name, node, Extra { docstring, signature, ..Extra::default() });
+        self.create_node(
+            "variable",
+            &name,
+            node,
+            Extra {
+                docstring,
+                signature,
+                ..Extra::default()
+            },
+        );
     }
 
     /// extractImport — every non-body `call` lands here (importTypes:['call']).
@@ -747,7 +847,10 @@ impl<'t> Walker<'t> {
             "import",
             &module_name,
             node,
-            Extra { signature: Some(import_text), ..Extra::default() },
+            Extra {
+                signature: Some(import_text),
+                ..Extra::default()
+            },
         );
         let parent = self.top_row();
         let imports_kind = edge_kind_index("imports").unwrap();
@@ -764,7 +867,11 @@ impl<'t> Walker<'t> {
                 Some(i) => &self.file_path[..i],
                 None => "",
             };
-            let joined = if dir.is_empty() { req.to_string() } else { format!("{dir}/{req}") };
+            let joined = if dir.is_empty() {
+                req.to_string()
+            } else {
+                format!("{dir}/{req}")
+            };
             posix_normalize(&joined)
         } else {
             req.to_string()
@@ -772,8 +879,11 @@ impl<'t> Walker<'t> {
         if !ref_path.contains('/') {
             return;
         }
-        let ref_path =
-            if ref_path.ends_with(".rb") { ref_path } else { format!("{ref_path}.rb") };
+        let ref_path = if ref_path.ends_with(".rb") {
+            ref_path
+        } else {
+            format!("{ref_path}.rb")
+        };
         self.push_ref_at(parent, &ref_path, imports_kind, node);
     }
 
@@ -810,7 +920,12 @@ impl<'t> Walker<'t> {
                 Some(i) => &receiver_name[i + 2..],
                 None => receiver_name,
             };
-            if class_name.as_bytes().first().map(|b| b.is_ascii_uppercase()).unwrap_or(false) {
+            if class_name
+                .as_bytes()
+                .first()
+                .map(|b| b.is_ascii_uppercase())
+                .unwrap_or(false)
+            {
                 self.push_ref(
                     caller,
                     &class_name.to_string(),
@@ -912,15 +1027,21 @@ impl<'t> Walker<'t> {
                 // `method(:target_cb)` — method field literally `method`, one
                 // simple_symbol argument. Candidate = bare symbol name at the
                 // SYMBOL node (gated at flush on defined-in-file ∪ imports).
-                let Some(method) = v.child_by_field_name("method") else { return };
+                let Some(method) = v.child_by_field_name("method") else {
+                    return;
+                };
                 if self.text(method) != "method" {
                     return;
                 }
-                let Some(args) = v.child_by_field_name("arguments") else { return };
+                let Some(args) = v.child_by_field_name("arguments") else {
+                    return;
+                };
                 if args.named_child_count() != 1 {
                     return;
                 }
-                let Some(sym) = args.named_child(0) else { return };
+                let Some(sym) = args.named_child(0) else {
+                    return;
+                };
                 if sym.kind() != "simple_symbol" {
                     return;
                 }
@@ -932,8 +1053,12 @@ impl<'t> Walker<'t> {
             "simple_symbol" => {
                 // Hook-DSL symbols (`before_action :authenticate`) → class-
                 // scoped `this.<sym>` candidates (always flushed).
-                let Some(call) = ruby_enclosing_call(v) else { return };
-                let Some(method) = call.child_by_field_name("method") else { return };
+                let Some(call) = ruby_enclosing_call(v) else {
+                    return;
+                };
+                let Some(method) = call.child_by_field_name("method") else {
+                    return;
+                };
                 if !is_ruby_hook_call(self.text(method)) {
                     return;
                 }
@@ -972,7 +1097,10 @@ impl<'t> Walker<'t> {
         if depth > 0
             && matches!(
                 node.kind(),
-                "method" | "arrow_function" | "function_expression" | "lambda_literal"
+                "method"
+                    | "arrow_function"
+                    | "function_expression"
+                    | "lambda_literal"
                     | "lambda_expression"
             )
         {
@@ -1101,7 +1229,10 @@ impl<'t> Walker<'t> {
                 visited += 1;
                 // `constant` is the ruby-live reader kind (a constant read IS
                 // a constant node); reverse-source-order traversal preserved.
-                if matches!(n.kind(), "identifier" | "constant" | "name" | "simple_identifier") {
+                if matches!(
+                    n.kind(),
+                    "identifier" | "constant" | "name" | "simple_identifier"
+                ) {
                     let ref_name = self.text(n);
                     if let Some(&target_row) = targets.get(ref_name) {
                         let target_id = self.node_ids[target_row as usize].as_str();
@@ -1141,8 +1272,11 @@ fn is_constant_path(node: Node) -> bool {
     match node.kind() {
         "constant" => true,
         "scope_resolution" => {
-            node.child_by_field_name("name").map_or(false, |n| n.kind() == "constant")
-                && node.child_by_field_name("scope").map_or(true, is_constant_path)
+            node.child_by_field_name("name")
+                .map_or(false, |n| n.kind() == "constant")
+                && node
+                    .child_by_field_name("scope")
+                    .map_or(true, is_constant_path)
         }
         _ => false,
     }

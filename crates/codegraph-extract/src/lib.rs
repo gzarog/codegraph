@@ -26,19 +26,20 @@ macro_rules! stack_guard {
 }
 
 mod buffers;
-mod decode;
 mod ccpp;
 mod cfnptr;
 mod csharp;
 mod dart;
+mod decode;
 mod docstring;
-mod ids;
 mod go;
+mod ids;
 mod java;
 mod kotlin;
 mod langs;
 mod lua;
 mod php;
+mod python;
 mod rlang;
 mod ruby;
 mod rustlang;
@@ -46,7 +47,6 @@ mod scala;
 mod stack;
 mod swift;
 mod textutil;
-mod python;
 mod tsjs;
 
 use codegraph_core::{ExtractionError, ExtractionResult, Language, Severity};
@@ -75,7 +75,9 @@ pub fn supports(language: Language) -> bool {
 }
 
 /// The C function-pointer facts for one file (see cfnptr.rs).
-pub use cfnptr::{scan_file as cfnptr_scan_file, FileFacts as CfnptrFacts, StructExtent as CfnptrStructExtent};
+pub use cfnptr::{
+    scan_file as cfnptr_scan_file, FileFacts as CfnptrFacts, StructExtent as CfnptrStructExtent,
+};
 
 /// Extract one file. A file the walker can't finish (a stack-guard trip on a
 /// pathologically nested file) comes back with no symbols and one error.
@@ -104,9 +106,13 @@ pub fn extract_file(file_path: &str, content: &str, language: Language) -> Extra
     let mut result = match out.and_then(|o| decode(&o, file_path, language)) {
         Ok(r) => r,
         Err(message) => {
-            let mut err = ExtractionError::error(message.trim_start_matches("defer:").trim().to_string());
+            let mut err =
+                ExtractionError::error(message.trim_start_matches("defer:").trim().to_string());
             err.file_path = Some(file_path.to_string());
-            ExtractionResult { errors: vec![err], ..Default::default() }
+            ExtractionResult {
+                errors: vec![err],
+                ..Default::default()
+            }
         }
     };
     if PARSE_ERRORS.with(|f| f.replace(false)) {
@@ -139,7 +145,11 @@ pub fn grammar_info(language: &str) -> Option<GrammarInfo> {
     let field_names = (1..=lang.field_count())
         .map(|i| lang.field_name_for_id(i as u16).unwrap_or("").to_string())
         .collect();
-    Some(GrammarInfo { abi_version: lang.abi_version() as u32, node_kinds, field_names })
+    Some(GrammarInfo {
+        abi_version: lang.abi_version() as u32,
+        node_kinds,
+        field_names,
+    })
 }
 
 /// Strip C comments and string contents the way the cFnPtr scan does.

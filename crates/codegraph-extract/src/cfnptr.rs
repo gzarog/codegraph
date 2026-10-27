@@ -87,8 +87,23 @@ pub struct FileFacts {
 
 /// Mirror of the TS `C_TYPE_KEYWORDS` set — keep in exact sync.
 const C_TYPE_KEYWORDS: [&[u8]; 17] = [
-    b"void", b"int", b"char", b"short", b"long", b"unsigned", b"signed", b"float", b"double",
-    b"const", b"struct", b"union", b"enum", b"static", b"volatile", b"register", b"inline",
+    b"void",
+    b"int",
+    b"char",
+    b"short",
+    b"long",
+    b"unsigned",
+    b"signed",
+    b"float",
+    b"double",
+    b"const",
+    b"struct",
+    b"union",
+    b"enum",
+    b"static",
+    b"volatile",
+    b"register",
+    b"inline",
 ];
 
 fn is_type_keyword(w: &[u8]) -> bool {
@@ -165,7 +180,10 @@ fn find_bytes(s: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     let mut i = from;
     while i + needle.len() <= s.len() {
         // memchr on the first byte keeps this fast on 20KB+ files.
-        match s[i..s.len() - needle.len() + 1].iter().position(|&b| b == needle[0]) {
+        match s[i..s.len() - needle.len() + 1]
+            .iter()
+            .position(|&b| b == needle[0])
+        {
             None => return None,
             Some(off) => {
                 i += off;
@@ -430,7 +448,11 @@ struct InlineScan {
 }
 
 fn scan_inline_structs(s: &[u8]) -> InlineScan {
-    let mut out = InlineScan { ptr: false, types: Vec::new(), tags: Vec::new() };
+    let mut out = InlineScan {
+        ptr: false,
+        types: Vec::new(),
+        tags: Vec::new(),
+    };
     let mut last = 0;
     loop {
         let next_struct = find_word(s, b"struct", last);
@@ -457,7 +479,9 @@ fn scan_inline_structs(s: &[u8]) -> InlineScan {
             continue;
         }
         last = open + 1; // lastIndex = end of match (after `{`)
-        let Some(close) = match_brace(s, open) else { continue };
+        let Some(close) = match_brace(s, open) else {
+            continue;
+        };
         // vm: /^\s*(\w+)…/ on the text after `}` — only vm[1] matters here.
         let v = skip_jsws(s, close + 1);
         if !is_word_at(s, v) {
@@ -662,7 +686,9 @@ fn array_table_body(s: &[u8], p: usize) -> Option<(String, usize)> {
             }
             let ne = word_end(s, q);
             let r = skip_jsws(s, ne);
-            let Some(r2) = bracket_span(s, r) else { continue };
+            let Some(r2) = bracket_span(s, r) else {
+                continue;
+            };
             let r3 = skip_jsws(s, r2);
             if s.get(r3) != Some(&b'=') {
                 continue;
@@ -929,7 +955,11 @@ fn scan_array_dispatch(s: &[u8], out: &mut Vec<String>) {
             if s.get(i) == Some(&b'*') {
                 let j = skip_jsws(s, i + 1);
                 // \b holds: the previous char is `*` or whitespace.
-                if is_word_at(s, j) { Some(j) } else { None }
+                if is_word_at(s, j) {
+                    Some(j)
+                } else {
+                    None
+                }
             } else {
                 None
             }
@@ -956,7 +986,9 @@ fn scan_array_dispatch(s: &[u8], out: &mut Vec<String>) {
 fn scan_includes(raw: &[u8], out: &mut Vec<String>) {
     let mut pos = 0usize;
     while pos < raw.len() {
-        let Some(h) = find_bytes(raw, b"#", pos) else { break };
+        let Some(h) = find_bytes(raw, b"#", pos) else {
+            break;
+        };
         let mut i = skip_sp_tab(raw, h + 1);
         if raw.len() < i + 7 || &raw[i..i + 7] != b"include" {
             pos = h + 1;
@@ -1200,7 +1232,11 @@ pub fn scan_file(raw: &str, structs: &[StructExtent]) -> FileFacts {
     if !structs.is_empty() {
         let lines = line_starts(s);
         for st in structs {
-            let mut sf = StructFields { id: st.id.clone(), parsed: false, fields: Vec::new() };
+            let mut sf = StructFields {
+                id: st.id.clone(),
+                parsed: false,
+                fields: Vec::new(),
+            };
             // sliceLinesPre: falsy startLine → '' (never parses). end_line
             // arrives with the TS side's `?? startLine` already applied; a
             // slice whose end ≤ start is empty, exactly like Array.slice.
@@ -1210,7 +1246,11 @@ pub fn scan_file(raw: &str, structs: &[StructExtent]) -> FileFacts {
                 if a < lines.len() && b > a {
                     let body_start = lines[a];
                     // End of line (b-1): next line start minus the `\n`, or EOF.
-                    let body_end = if b < lines.len() { lines[b] - 1 } else { s.len() };
+                    let body_end = if b < lines.len() {
+                        lines[b] - 1
+                    } else {
+                        s.len()
+                    };
                     let body = &s[body_start..body_end.max(body_start)];
                     if let Some(open) = body.iter().position(|&c| c == b'{') {
                         if let Some(close) = match_brace(body, open) {
@@ -1310,7 +1350,8 @@ mod tests {
 
     #[test]
     fn alias_shapes() {
-        let f = facts("#define A redisCommand\n#define B struct foo\n#define C 0x12\n#define D(x) x\n");
+        let f =
+            facts("#define A redisCommand\n#define B struct foo\n#define C 0x12\n#define D(x) x\n");
         assert!(f.alias_names.contains(&"A".to_string()));
         assert!(f.alias_names.contains(&"B".to_string()));
         assert!(!f.alias_names.contains(&"C".to_string()));

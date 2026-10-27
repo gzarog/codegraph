@@ -26,7 +26,7 @@
 
 use crate::buffers::{
     build_meta, edge_kind_index, node_kind_index, Arena, BoolFlags, EdgeRow, EmitOut, NodeRow,
-    RefRow, Tables, FLAG_IS_EXPORTED, FUNCTION_REF_CODE, NONE, NONE_STR, StrRef,
+    RefRow, StrRef, Tables, FLAG_IS_EXPORTED, FUNCTION_REF_CODE, NONE, NONE_STR,
 };
 use crate::docstring::preceding_docstring;
 use crate::ids;
@@ -38,8 +38,18 @@ use tree_sitter::{Node, Parser};
 fn is_stoplisted(name: &str) -> bool {
     matches!(
         name,
-        "this" | "self" | "super" | "null" | "nil" | "true" | "false" | "undefined" | "new"
-            | "NULL" | "nullptr" | "None"
+        "this"
+            | "self"
+            | "super"
+            | "null"
+            | "nil"
+            | "true"
+            | "false"
+            | "undefined"
+            | "new"
+            | "NULL"
+            | "nullptr"
+            | "None"
     )
 }
 
@@ -141,7 +151,11 @@ pub fn extract(file_path: &str, source: &str, language: &str) -> Result<EmitOut,
         extra_json: NONE_STR,
     });
     w.node_ids.push(ids::file_node_id(file_path));
-    w.stack.push(Scope { row: 0, kind: "file", name: base_name.to_string() });
+    w.stack.push(Scope {
+        row: 0,
+        kind: "file",
+        name: base_name.to_string(),
+    });
 
     // No packageTypes → no namespace node. Value-refs are language-gated off.
     w.visit(tree.root_node());
@@ -167,10 +181,20 @@ impl<'t> Walker<'t> {
         node.start_position().row as u32 + 1
     }
     fn col_of(&self, node: Node) -> u32 {
-        util::col16(self.src, &self.line_starts, node.start_position().row, node.start_byte())
+        util::col16(
+            self.src,
+            &self.line_starts,
+            node.start_position().row,
+            node.start_byte(),
+        )
     }
     fn end_col_of(&self, node: Node) -> u32 {
-        util::col16(self.src, &self.line_starts, node.end_position().row, node.end_byte())
+        util::col16(
+            self.src,
+            &self.line_starts,
+            node.end_position().row,
+            node.end_byte(),
+        )
     }
     fn top_row(&self) -> u32 {
         self.stack.last().map(|s| s.row).unwrap_or(0)
@@ -201,13 +225,21 @@ impl<'t> Walker<'t> {
 
     // --- createNode (tree-sitter.ts:1308) ---------------------------------
 
-    fn create_node(&mut self, kind: &'static str, name: &str, node: Node<'t>, extra: Extra) -> Option<u32> {
+    fn create_node(
+        &mut self,
+        kind: &'static str,
+        name: &str,
+        node: Node<'t>,
+        extra: Extra,
+    ) -> Option<u32> {
         if name.is_empty() {
             return None;
         }
         let start_line = self.line_of(node);
         let column = self.col_of(node);
-        let id = self.node_id_allocator.generate(self.file_path, kind, name, start_line, column);
+        let id = self
+            .node_id_allocator
+            .generate(self.file_path, kind, name, start_line, column);
 
         // buildQualifiedName (1447-1460) — non-file stack NAMES joined `::`;
         // the receiver override (extractMethod:1790-1792) replaces it whole.
@@ -309,7 +341,11 @@ impl<'t> Walker<'t> {
         // String win: first string_content descendant, BFS order.
         if let Some(content) = self.find_descendant(args, "string_content") {
             let t = self.text(content).trim();
-            return if t.is_empty() { None } else { Some(t.to_string()) };
+            return if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            };
         }
         // Fallback: a string node with no content child — strip [[ ]] / quotes.
         if let Some(s) = self.find_descendant(args, "string") {
@@ -332,7 +368,11 @@ impl<'t> Walker<'t> {
                 .or_else(|| idx.child_by_field_name("method"))
             {
                 let t = self.text(field).trim();
-                return if t.is_empty() { None } else { Some(t.to_string()) };
+                return if t.is_empty() {
+                    None
+                } else {
+                    Some(t.to_string())
+                };
             }
         }
         None
@@ -346,7 +386,10 @@ impl<'t> Walker<'t> {
             "import",
             module,
             call,
-            Extra { signature: Some(sig), ..Default::default() },
+            Extra {
+                signature: Some(sig),
+                ..Default::default()
+            },
         );
         if imp.is_some() && !self.stack.is_empty() {
             let parent_row = self.top_row();
@@ -382,7 +425,10 @@ impl<'t> Walker<'t> {
         // Fallback: first identifier-ish named child.
         let mut cursor = node.walk();
         for c in node.named_children(&mut cursor) {
-            if matches!(c.kind(), "identifier" | "type_identifier" | "simple_identifier" | "constant") {
+            if matches!(
+                c.kind(),
+                "identifier" | "type_identifier" | "simple_identifier" | "constant"
+            ) {
                 return self.text(c).to_string();
             }
         }
@@ -398,7 +444,10 @@ impl<'t> Walker<'t> {
             // startIndex match), unless it's the block.
             let mut cursor = node.walk();
             let kids: Vec<Node<'t>> = node.named_children(&mut cursor).collect();
-            if let Some(idx) = kids.iter().position(|k| k.start_byte() == params.start_byte()) {
+            if let Some(idx) = kids
+                .iter()
+                .position(|k| k.start_byte() == params.start_byte())
+            {
                 if let Some(ret) = kids.get(idx + 1) {
                     if ret.kind() != "block" {
                         sig.push_str(": ");
@@ -438,10 +487,14 @@ impl<'t> Walker<'t> {
             // `local x = require(...)` — dig requires out of the initializer
             // the variable branch will skip. Always falls through.
             let mut cursor = node.walk();
-            let assign = node.named_children(&mut cursor).find(|c| c.kind() == "assignment_statement");
+            let assign = node
+                .named_children(&mut cursor)
+                .find(|c| c.kind() == "assignment_statement");
             if let Some(assign) = assign {
                 let mut ac = assign.walk();
-                let expr_list = assign.named_children(&mut ac).find(|c| c.kind() == "expression_list");
+                let expr_list = assign
+                    .named_children(&mut ac)
+                    .find(|c| c.kind() == "expression_list");
                 if let Some(expr_list) = expr_list {
                     let mut ec = expr_list.walk();
                     let vals: Vec<Node<'t>> = expr_list.named_children(&mut ec).collect();
@@ -515,12 +568,21 @@ impl<'t> Walker<'t> {
             "function",
             &name,
             node,
-            Extra { docstring, signature, is_exported, ..Default::default() },
+            Extra {
+                docstring,
+                signature,
+                is_exported,
+                ..Default::default()
+            },
         );
         let Some(row) = fn_row else { return };
         // extractTypeAnnotations / extractDecoratorsFor: structurally zero
         // output for lua/luau (gates + no decorator kinds in scan positions).
-        self.stack.push(Scope { row, kind: "function", name });
+        self.stack.push(Scope {
+            row,
+            kind: "function",
+            name,
+        });
         if let Some(body) = node.child_by_field_name("body") {
             self.visit_body(body);
         }
@@ -550,7 +612,11 @@ impl<'t> Walker<'t> {
         let Some(row) = method_row else { return };
         // Owner-contains (:1799-1813) never fires: lua mints no
         // struct/class/enum/trait nodes for a receiver name to match.
-        self.stack.push(Scope { row, kind: "method", name });
+        self.stack.push(Scope {
+            row,
+            kind: "method",
+            name,
+        });
         if let Some(body) = node.child_by_field_name("body") {
             self.visit_body(body);
         }
@@ -572,9 +638,13 @@ impl<'t> Walker<'t> {
             .find(|c| c.kind() == "assignment_statement")
             .unwrap_or(node);
         let mut ac = assign.walk();
-        let var_list = assign.named_children(&mut ac).find(|c| c.kind() == "variable_list");
+        let var_list = assign
+            .named_children(&mut ac)
+            .find(|c| c.kind() == "variable_list");
         let mut ec = assign.walk();
-        let expr_list = assign.named_children(&mut ec).find(|c| c.kind() == "expression_list");
+        let expr_list = assign
+            .named_children(&mut ec)
+            .find(|c| c.kind() == "expression_list");
         let values: Vec<Node<'t>> = match expr_list {
             Some(el) => {
                 let mut c = el.walk();
@@ -596,12 +666,7 @@ impl<'t> Walker<'t> {
             let value = values.get(i).copied();
             if let Some(value) = value {
                 if value.kind() == "function_definition" {
-                    self.extract_lua_function_value(
-                        value,
-                        name,
-                        receiver,
-                        docstring.clone(),
-                    );
+                    self.extract_lua_function_value(value, name, receiver, docstring.clone());
                     continue;
                 }
                 if value.kind() == "table_constructor" {
@@ -683,11 +748,7 @@ impl<'t> Walker<'t> {
     ) {
         let signature = self.signature_of(node);
         let (kind, qualified_name_override, is_exported) = match receiver {
-            Some(receiver) => (
-                "method",
-                Some(format!("{receiver}::{name}")),
-                None,
-            ),
+            Some(receiver) => ("method", Some(format!("{receiver}::{name}")), None),
             None => ("function", None, self.is_exported_of(node)),
         };
         let row = self.create_node(
@@ -717,8 +778,12 @@ impl<'t> Walker<'t> {
             if field.kind() != "field" {
                 continue;
             }
-            let Some(name_node) = field.child_by_field_name("name") else { continue };
-            let Some(value) = field.child_by_field_name("value") else { continue };
+            let Some(name_node) = field.child_by_field_name("name") else {
+                continue;
+            };
+            let Some(value) = field.child_by_field_name("value") else {
+                continue;
+            };
             let bracketed = self.text(field).trim_start().starts_with('[');
             let name = self.lua_static_field_name(name_node, bracketed);
             if name.is_empty() {
@@ -746,7 +811,11 @@ impl<'t> Walker<'t> {
             "type_alias",
             &name,
             node,
-            Extra { docstring, is_exported, ..Default::default() },
+            Extra {
+                docstring,
+                is_exported,
+                ..Default::default()
+            },
         );
         // TYPE_ANNOTATION_LANGUAGES excludes luau → no alias-value refs.
         false // children re-visited by the ladder
@@ -841,13 +910,23 @@ impl<'t> Walker<'t> {
                 // left/lhs/target field ?? namedChild(0) when ≥2 children;
                 // its trailing identifier vs the whole RHS text.
                 let count = node.named_child_count();
-                let rhs = if count > 0 { node.named_child(count - 1) } else { None };
+                let rhs = if count > 0 {
+                    node.named_child(count - 1)
+                } else {
+                    None
+                };
                 if let Some(rhs) = rhs {
                     let lhs = node
                         .child_by_field_name("left")
                         .or_else(|| node.child_by_field_name("lhs"))
                         .or_else(|| node.child_by_field_name("target"))
-                        .or_else(|| if count >= 2 { node.named_child(0) } else { None });
+                        .or_else(|| {
+                            if count >= 2 {
+                                node.named_child(0)
+                            } else {
+                                None
+                            }
+                        });
                     let lhs_text = lhs.map(|l| self.text(l)).unwrap_or("");
                     let lhs_last = util::lhs_last_name()
                         .captures(lhs_text)
@@ -863,7 +942,11 @@ impl<'t> Walker<'t> {
                 // fields carry it), falling back to the last named child.
                 let v = node.child_by_field_name("value").or_else(|| {
                     let count = node.named_child_count();
-                    if count > 0 { node.named_child(count - 1) } else { None }
+                    if count > 0 {
+                        node.named_child(count - 1)
+                    } else {
+                        None
+                    }
                 });
                 if let Some(v) = v {
                     values.push(v);
@@ -920,8 +1003,12 @@ impl<'t> Walker<'t> {
         if depth > 0
             && matches!(
                 node.kind(),
-                "function_declaration" | "function_definition" | "arrow_function" | "function_expression"
-                    | "lambda_literal" | "lambda_expression"
+                "function_declaration"
+                    | "function_definition"
+                    | "arrow_function"
+                    | "function_expression"
+                    | "lambda_literal"
+                    | "lambda_expression"
             )
         {
             return;

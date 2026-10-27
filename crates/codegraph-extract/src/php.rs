@@ -36,8 +36,18 @@ const MAX_VALUE_REF_NODES: usize = 20_000;
 fn is_stoplisted(name: &str) -> bool {
     matches!(
         name,
-        "this" | "self" | "super" | "null" | "nil" | "true" | "false" | "undefined" | "new"
-            | "NULL" | "nullptr" | "None"
+        "this"
+            | "self"
+            | "super"
+            | "null"
+            | "nil"
+            | "true"
+            | "false"
+            | "undefined"
+            | "new"
+            | "NULL"
+            | "nullptr"
+            | "None"
     )
 }
 
@@ -45,9 +55,24 @@ fn is_stoplisted(name: &str) -> bool {
 fn is_php_non_class_return(lc: &str) -> bool {
     matches!(
         lc,
-        "array" | "string" | "int" | "integer" | "float" | "double" | "bool" | "boolean"
-            | "void" | "mixed" | "never" | "null" | "false" | "true" | "object" | "callable"
-            | "iterable" | "resource"
+        "array"
+            | "string"
+            | "int"
+            | "integer"
+            | "float"
+            | "double"
+            | "bool"
+            | "boolean"
+            | "void"
+            | "mixed"
+            | "never"
+            | "null"
+            | "false"
+            | "true"
+            | "object"
+            | "callable"
+            | "iterable"
+            | "resource"
     )
 }
 
@@ -55,8 +80,23 @@ fn is_php_non_class_return(lc: &str) -> bool {
 fn is_php_pseudo_type(name: &str) -> bool {
     matches!(
         name,
-        "self" | "static" | "parent" | "mixed" | "object" | "iterable" | "callable" | "void"
-            | "null" | "false" | "true" | "never" | "array" | "int" | "float" | "string" | "bool"
+        "self"
+            | "static"
+            | "parent"
+            | "mixed"
+            | "object"
+            | "iterable"
+            | "callable"
+            | "void"
+            | "null"
+            | "false"
+            | "true"
+            | "never"
+            | "array"
+            | "int"
+            | "float"
+            | "string"
+            | "bool"
     )
 }
 
@@ -64,8 +104,13 @@ fn is_php_pseudo_type(name: &str) -> bool {
 fn is_php_type_node(kind: &str) -> bool {
     matches!(
         kind,
-        "named_type" | "optional_type" | "nullable_type" | "union_type" | "intersection_type"
-            | "disjunctive_normal_form_type" | "primitive_type"
+        "named_type"
+            | "optional_type"
+            | "nullable_type"
+            | "union_type"
+            | "intersection_type"
+            | "disjunctive_normal_form_type"
+            | "primitive_type"
     )
 }
 
@@ -73,15 +118,32 @@ fn is_php_type_node(kind: &str) -> bool {
 fn is_php_callable_hof(name: &str) -> bool {
     matches!(
         name,
-        "array_map" | "array_filter" | "array_walk" | "array_walk_recursive" | "array_reduce"
-            | "usort" | "uasort" | "uksort"
-            | "array_udiff" | "array_udiff_assoc" | "array_uintersect" | "array_uintersect_assoc"
-            | "call_user_func" | "call_user_func_array"
-            | "forward_static_call" | "forward_static_call_array"
-            | "preg_replace_callback" | "preg_replace_callback_array"
-            | "register_shutdown_function" | "register_tick_function"
-            | "set_error_handler" | "set_exception_handler" | "spl_autoload_register"
-            | "ob_start" | "iterator_apply" | "header_register_callback"
+        "array_map"
+            | "array_filter"
+            | "array_walk"
+            | "array_walk_recursive"
+            | "array_reduce"
+            | "usort"
+            | "uasort"
+            | "uksort"
+            | "array_udiff"
+            | "array_udiff_assoc"
+            | "array_uintersect"
+            | "array_uintersect_assoc"
+            | "call_user_func"
+            | "call_user_func_array"
+            | "forward_static_call"
+            | "forward_static_call_array"
+            | "preg_replace_callback"
+            | "preg_replace_callback_array"
+            | "register_shutdown_function"
+            | "register_tick_function"
+            | "set_error_handler"
+            | "set_exception_handler"
+            | "spl_autoload_register"
+            | "ob_start"
+            | "iterator_apply"
+            | "header_register_callback"
             | "is_callable"
     )
 }
@@ -212,7 +274,11 @@ pub fn extract(file_path: &str, source: &str) -> Result<EmitOut, String> {
         extra_json: NONE_STR,
     });
     w.node_ids.push(ids::file_node_id(file_path));
-    w.stack.push(Scope { row: 0, kind: "file", name: base_name.to_string() });
+    w.stack.push(Scope {
+        row: 0,
+        kind: "file",
+        name: base_name.to_string(),
+    });
 
     // extractFilePackage: the FIRST namespace_definition among the root's
     // direct namedChildren; braced namespaces (a compound_statement /
@@ -222,7 +288,9 @@ pub fn extract(file_path: &str, source: &str) -> Result<EmitOut, String> {
     let root = tree.root_node();
     let mut pkg_pushed = false;
     for i in 0..root.named_child_count() {
-        let Some(child) = root.named_child(i) else { continue };
+        let Some(child) = root.named_child(i) else {
+            continue;
+        };
         if child.kind() != "namespace_definition" {
             continue;
         }
@@ -237,7 +305,11 @@ pub fn extract(file_path: &str, source: &str) -> Result<EmitOut, String> {
                 let pkg = w.text(ns_name).to_string();
                 if !pkg.is_empty() {
                     if let Some(row) = w.create_node("namespace", &pkg, child, Extra::default()) {
-                        w.stack.push(Scope { row, kind: "namespace", name: pkg });
+                        w.stack.push(Scope {
+                            row,
+                            kind: "namespace",
+                            name: pkg,
+                        });
                         pkg_pushed = true;
                     }
                 }
@@ -273,10 +345,20 @@ impl<'t> Walker<'t> {
         node.start_position().row as u32 + 1
     }
     fn col_of(&self, node: Node) -> u32 {
-        util::col16(self.src, &self.line_starts, node.start_position().row, node.start_byte())
+        util::col16(
+            self.src,
+            &self.line_starts,
+            node.start_position().row,
+            node.start_byte(),
+        )
     }
     fn end_col_of(&self, node: Node) -> u32 {
-        util::col16(self.src, &self.line_starts, node.end_position().row, node.end_byte())
+        util::col16(
+            self.src,
+            &self.line_starts,
+            node.end_position().row,
+            node.end_byte(),
+        )
     }
     fn top_row(&self) -> u32 {
         self.stack.last().map(|s| s.row).unwrap_or(0)
@@ -284,7 +366,12 @@ impl<'t> Walker<'t> {
     fn inside_class_like(&self) -> bool {
         self.stack
             .last()
-            .map(|s| matches!(s.kind, "class" | "struct" | "interface" | "trait" | "enum" | "module"))
+            .map(|s| {
+                matches!(
+                    s.kind,
+                    "class" | "struct" | "interface" | "trait" | "enum" | "module"
+                )
+            })
             .unwrap_or(false)
     }
 
@@ -309,18 +396,32 @@ impl<'t> Walker<'t> {
     }
 
     fn push_ref_at(&mut self, from_row: u32, name: &str, kind_code: u8, node: Node) {
-        self.push_ref(from_row, name, kind_code, self.line_of(node), self.col_of(node));
+        self.push_ref(
+            from_row,
+            name,
+            kind_code,
+            self.line_of(node),
+            self.col_of(node),
+        );
     }
 
     // --- createNode ------------------------------------------------------------
 
-    fn create_node(&mut self, kind: &'static str, name: &str, node: Node<'t>, extra: Extra) -> Option<u32> {
+    fn create_node(
+        &mut self,
+        kind: &'static str,
+        name: &str,
+        node: Node<'t>,
+        extra: Extra,
+    ) -> Option<u32> {
         if name.is_empty() {
             return None;
         }
         let start_line = self.line_of(node);
         let column = self.col_of(node);
-        let id = self.node_id_allocator.generate(self.file_path, kind, name, start_line, column);
+        let id = self
+            .node_id_allocator
+            .generate(self.file_path, kind, name, start_line, column);
         let end_line = node.end_position().row as u32 + 1; // no resolveBody for php
 
         let qualified = {
@@ -403,7 +504,11 @@ impl<'t> Walker<'t> {
             }
         }
         if matches!(kind, "function" | "method" | "constant" | "variable") {
-            self.value_scopes.push(ValueScope { row, node, name: name.to_string() });
+            self.value_scopes.push(ValueScope {
+                row,
+                node,
+                name: name.to_string(),
+            });
         }
         Some(row)
     }
@@ -414,7 +519,10 @@ impl<'t> Walker<'t> {
         }
         for i in 0..node.named_child_count() {
             if let Some(c) = node.named_child(i) {
-                if matches!(c.kind(), "identifier" | "type_identifier" | "simple_identifier" | "constant") {
+                if matches!(
+                    c.kind(),
+                    "identifier" | "type_identifier" | "simple_identifier" | "constant"
+                ) {
                     return self.text(c).to_string();
                 }
             }
@@ -457,7 +565,11 @@ impl<'t> Walker<'t> {
         if rt.kind() == "primitive_type" {
             return None;
         }
-        let name_node = if rt.kind() == "named_type" { rt.named_child(0).unwrap_or(rt) } else { rt };
+        let name_node = if rt.kind() == "named_type" {
+            rt.named_child(0).unwrap_or(rt)
+        } else {
+            rt
+        };
         let text = self.text(name_node).trim();
         let text = text.strip_prefix('\\').unwrap_or(text);
         if text.is_empty() {
@@ -579,8 +691,11 @@ impl<'t> Walker<'t> {
             skip_children = true;
         } else if matches!(
             kind,
-            "namespace_use_declaration" | "include_expression" | "include_once_expression"
-                | "require_expression" | "require_once_expression"
+            "namespace_use_declaration"
+                | "include_expression"
+                | "include_once_expression"
+                | "require_expression"
+                | "require_once_expression"
         ) {
             self.extract_import(node);
             // children still visited (importTypes sets no skipChildren)
@@ -693,10 +808,16 @@ impl<'t> Walker<'t> {
             is_static: Some(self.is_static(node)),
             return_type: self.return_type_of(node),
         };
-        let Some(row) = self.create_node("function", &name, node, extra) else { return };
+        let Some(row) = self.create_node("function", &name, node, extra) else {
+            return;
+        };
         self.extract_php_type_refs(node, row);
         // decorators: none.
-        self.stack.push(Scope { row, kind: "function", name });
+        self.stack.push(Scope {
+            row,
+            kind: "function",
+            name,
+        });
         if let Some(body) = node.child_by_field_name("body") {
             self.visit_function_body(body);
         }
@@ -713,9 +834,15 @@ impl<'t> Walker<'t> {
             is_static: Some(self.is_static(node)),
             return_type: self.return_type_of(node),
         };
-        let Some(row) = self.create_node("method", &name, node, extra) else { return };
+        let Some(row) = self.create_node("method", &name, node, extra) else {
+            return;
+        };
         self.extract_php_type_refs(node, row);
-        self.stack.push(Scope { row, kind: "method", name });
+        self.stack.push(Scope {
+            row,
+            kind: "method",
+            name,
+        });
         // Bodiless (interface/abstract) methods still mint nodes, no walk.
         if let Some(body) = node.child_by_field_name("body") {
             self.visit_function_body(body);
@@ -731,7 +858,9 @@ impl<'t> Walker<'t> {
             visibility: Some(self.visibility_of(node)),
             ..Extra::default()
         };
-        let Some(row) = self.create_node(kind, &name, node, extra) else { return };
+        let Some(row) = self.create_node(kind, &name, node, extra) else {
+            return;
+        };
         self.extract_inheritance(node, row);
         // primary-ctor refs: csharp-only (needs a parameter_list child type);
         // decorators: none.
@@ -752,9 +881,15 @@ impl<'t> Walker<'t> {
             docstring: preceding_docstring(node, self.src),
             ..Extra::default() // NO visibility — extractInterface never asks
         };
-        let Some(row) = self.create_node("interface", &name, node, extra) else { return };
+        let Some(row) = self.create_node("interface", &name, node, extra) else {
+            return;
+        };
         self.extract_inheritance(node, row);
-        self.stack.push(Scope { row, kind: "interface", name });
+        self.stack.push(Scope {
+            row,
+            kind: "interface",
+            name,
+        });
         let body = node.child_by_field_name("body").unwrap_or(node);
         for i in 0..body.named_child_count() {
             if let Some(c) = body.named_child(i) {
@@ -766,20 +901,30 @@ impl<'t> Walker<'t> {
 
     fn extract_enum(&mut self, node: Node<'t>) {
         stack_guard!();
-        let Some(body) = node.child_by_field_name("body") else { return };
+        let Some(body) = node.child_by_field_name("body") else {
+            return;
+        };
         let name = self.extract_name(node);
         let extra = Extra {
             docstring: preceding_docstring(node, self.src),
             visibility: Some(self.visibility_of(node)),
             ..Extra::default()
         };
-        let Some(row) = self.create_node("enum", &name, node, extra) else { return };
+        let Some(row) = self.create_node("enum", &name, node, extra) else {
+            return;
+        };
         // class_interface_clause → implements refs; the backing type is never
         // read (it's not in a base_clause).
         self.extract_inheritance(node, row);
-        self.stack.push(Scope { row, kind: "enum", name });
+        self.stack.push(Scope {
+            row,
+            kind: "enum",
+            name,
+        });
         for i in 0..body.named_child_count() {
-            let Some(child) = body.named_child(i) else { continue };
+            let Some(child) = body.named_child(i) else {
+                continue;
+            };
             if child.kind() == "enum_case" {
                 self.extract_enum_members(child);
             } else {
@@ -822,8 +967,11 @@ impl<'t> Walker<'t> {
             .find(|c| {
                 !matches!(
                     c.kind(),
-                    "visibility_modifier" | "static_modifier" | "readonly_modifier"
-                        | "property_element" | "var_modifier"
+                    "visibility_modifier"
+                        | "static_modifier"
+                        | "readonly_modifier"
+                        | "property_element"
+                        | "var_modifier"
                 )
             });
         let type_text = type_node.map(|t| self.text(t).to_string());
@@ -864,7 +1012,9 @@ impl<'t> Walker<'t> {
     /// leading `\`) emits nothing here.
     fn push_php_use_ref(&mut self, fqn: &str, from_row: u32, node: Node) {
         let clean = fqn.strip_prefix('\\').unwrap_or(fqn);
-        let Some(last_sep) = clean.rfind('\\') else { return };
+        let Some(last_sep) = clean.rfind('\\') else {
+            return;
+        };
         let name = format!("{}::{}", &clean[..last_sep], &clean[last_sep + 1..]);
         self.push_ref_at(from_row, &name, edge_kind_index("imports").unwrap(), node);
     }
@@ -876,7 +1026,9 @@ impl<'t> Walker<'t> {
 
         if matches!(
             kind,
-            "include_expression" | "include_once_expression" | "require_expression"
+            "include_expression"
+                | "include_once_expression"
+                | "require_expression"
                 | "require_once_expression"
         ) {
             // phpStaticIncludePath: static string literals only; dynamic
@@ -893,7 +1045,9 @@ impl<'t> Walker<'t> {
             }
             let mut content: Option<Node> = None;
             for i in 0..arg.named_child_count() {
-                let Some(c) = arg.named_child(i) else { continue };
+                let Some(c) = arg.named_child(i) else {
+                    continue;
+                };
                 if c.kind() != "string_content" {
                     return; // interpolation/escape → not a static path
                 }
@@ -910,7 +1064,10 @@ impl<'t> Walker<'t> {
                 "import",
                 &module_name,
                 node,
-                Extra { signature: Some(import_text), ..Extra::default() },
+                Extra {
+                    signature: Some(import_text),
+                    ..Extra::default()
+                },
             );
             let parent = self.top_row();
             self.push_ref_at(parent, &module_name.clone(), imports_kind, node);
@@ -934,7 +1091,10 @@ impl<'t> Walker<'t> {
             let clauses: Vec<Node> = (0..use_group.named_child_count())
                 .filter_map(|i| use_group.named_child(i))
                 .filter(|c| {
-                    matches!(c.kind(), "namespace_use_group_clause" | "namespace_use_clause")
+                    matches!(
+                        c.kind(),
+                        "namespace_use_group_clause" | "namespace_use_clause"
+                    )
                 })
                 .collect();
             for clause in clauses {
@@ -955,7 +1115,10 @@ impl<'t> Walker<'t> {
                         "import",
                         &full,
                         node,
-                        Extra { signature: Some(import_text.clone()), ..Extra::default() },
+                        Extra {
+                            signature: Some(import_text.clone()),
+                            ..Extra::default()
+                        },
                     );
                     let parent = self.top_row();
                     self.push_php_use_ref(&full, parent, node);
@@ -987,7 +1150,10 @@ impl<'t> Walker<'t> {
             "import",
             &module_name,
             node,
-            Extra { signature: Some(import_text), ..Extra::default() },
+            Extra {
+                signature: Some(import_text),
+                ..Extra::default()
+            },
         );
         let parent = self.top_row();
         self.push_ref_at(parent, &module_name.clone(), imports_kind, node);
@@ -1040,7 +1206,10 @@ impl<'t> Walker<'t> {
             let receiver_raw = self.text(object_field);
             let receiver = receiver_raw.strip_prefix('$').unwrap_or(receiver_raw);
             if !method_name.is_empty() {
-                if matches!(receiver, "self" | "this" | "cls" | "super" | "parent" | "static") {
+                if matches!(
+                    receiver,
+                    "self" | "this" | "cls" | "super" | "parent" | "static"
+                ) {
                     callee_name = method_name.to_string();
                 } else {
                     callee_name = format!("{receiver}.{method_name}");
@@ -1062,7 +1231,12 @@ impl<'t> Walker<'t> {
             if let Some(c) = util::paren_conversion().captures(&callee_name) {
                 callee_name = c[1].to_string();
             }
-            self.push_ref_at(caller, &callee_name.clone(), edge_kind_index("calls").unwrap(), node);
+            self.push_ref_at(
+                caller,
+                &callee_name.clone(),
+                edge_kind_index("calls").unwrap(),
+                node,
+            );
         }
     }
 
@@ -1084,7 +1258,12 @@ impl<'t> Walker<'t> {
         let class_name = strip_generic_and_qualifier(self.text(ctor));
         if !class_name.is_empty() {
             let from = self.top_row();
-            self.push_ref_at(from, &class_name, edge_kind_index("instantiates").unwrap(), node);
+            self.push_ref_at(
+                from,
+                &class_name,
+                edge_kind_index("instantiates").unwrap(),
+                node,
+            );
         }
     }
 
@@ -1098,8 +1277,9 @@ impl<'t> Walker<'t> {
             .or_else(|| node.child_by_field_name("type"))
             .or_else(|| node.child_by_field_name("name"))
             .or_else(|| node.named_child(0));
-        let mut type_name =
-            type_node.map(|t| self.text(t).to_string()).unwrap_or_else(|| "Object".to_string());
+        let mut type_name = type_node
+            .map(|t| self.text(t).to_string())
+            .unwrap_or_else(|| "Object".to_string());
         type_name = strip_generic_and_qualifier(&type_name);
         if type_name.is_empty() {
             type_name = "Object".to_string();
@@ -1112,8 +1292,18 @@ impl<'t> Walker<'t> {
             Some(t) => (t.start_position().row as u32, self.col_of(t)),
             None => (node.start_position().row as u32, self.col_of(node)),
         };
-        self.push_ref(row, &type_name, edge_kind_index("extends").unwrap(), line, column);
-        self.stack.push(Scope { row, kind: "class", name: anon_name });
+        self.push_ref(
+            row,
+            &type_name,
+            edge_kind_index("extends").unwrap(),
+            line,
+            column,
+        );
+        self.stack.push(Scope {
+            row,
+            kind: "class",
+            name: anon_name,
+        });
         for i in 0..body.named_child_count() {
             if let Some(c) = body.named_child(i) {
                 self.visit_node(c);
@@ -1128,7 +1318,8 @@ impl<'t> Walker<'t> {
     fn extract_static_member_ref(&mut self, node: Node<'t>) {
         if !matches!(
             node.kind(),
-            "class_constant_access_expression" | "scoped_property_access_expression"
+            "class_constant_access_expression"
+                | "scoped_property_access_expression"
                 | "member_access_expression"
         ) {
             return;
@@ -1161,11 +1352,20 @@ impl<'t> Walker<'t> {
         let Some(recv) = recv else { return };
         if matches!(
             recv.kind(),
-            "identifier" | "type_identifier" | "simple_identifier" | "name" | "scoped_type_identifier"
+            "identifier"
+                | "type_identifier"
+                | "simple_identifier"
+                | "name"
+                | "scoped_type_identifier"
         ) {
             let text = self.text(recv);
             if capitalized_re().is_match(text) {
-                self.push_ref_at(owner, &text.to_string(), edge_kind_index("references").unwrap(), recv);
+                self.push_ref_at(
+                    owner,
+                    &text.to_string(),
+                    edge_kind_index("references").unwrap(),
+                    recv,
+                );
             }
         }
     }
@@ -1177,7 +1377,9 @@ impl<'t> Walker<'t> {
         let extends_kind = edge_kind_index("extends").unwrap();
         let implements_kind = edge_kind_index("implements").unwrap();
         for i in 0..node.named_child_count() {
-            let Some(child) = node.named_child(i) else { continue };
+            let Some(child) = node.named_child(i) else {
+                continue;
+            };
             if child.kind() == "base_clause" {
                 if let Some(target) = child.named_child(0) {
                     let name = self.text(target).to_string();
@@ -1185,7 +1387,9 @@ impl<'t> Walker<'t> {
                 }
             } else if child.kind() == "class_interface_clause" {
                 for j in 0..child.named_child_count() {
-                    let Some(iface) = child.named_child(j) else { continue };
+                    let Some(iface) = child.named_child(j) else {
+                        continue;
+                    };
                     let name = self.text(iface).to_string();
                     self.push_ref_at(class_row, &name, implements_kind, iface);
                 }
@@ -1201,7 +1405,9 @@ impl<'t> Walker<'t> {
             .find(|c| c.kind() == "formal_parameters");
         if let Some(params) = params {
             for i in 0..params.named_child_count() {
-                let Some(p) = params.named_child(i) else { continue };
+                let Some(p) = params.named_child(i) else {
+                    continue;
+                };
                 for j in 0..p.named_child_count() {
                     let Some(c) = p.named_child(j) else { continue };
                     if is_php_type_node(c.kind()) {
@@ -1211,7 +1417,9 @@ impl<'t> Walker<'t> {
             }
         }
         for i in 0..node.named_child_count() {
-            let Some(c) = node.named_child(i) else { continue };
+            let Some(c) = node.named_child(i) else {
+                continue;
+            };
             if is_php_type_node(c.kind()) {
                 self.walk_php_type_position(c, from_row);
             }
@@ -1225,14 +1433,24 @@ impl<'t> Walker<'t> {
             "name" => {
                 let name = self.text(node);
                 if !name.is_empty() && !is_php_pseudo_type(name) {
-                    self.push_ref_at(from_row, &name.to_string(), edge_kind_index("references").unwrap(), node);
+                    self.push_ref_at(
+                        from_row,
+                        &name.to_string(),
+                        edge_kind_index("references").unwrap(),
+                        node,
+                    );
                 }
             }
             "qualified_name" => {
                 let text = self.text(node);
                 let last = text.rsplit('\\').next().unwrap_or("");
                 if !last.is_empty() && !is_php_pseudo_type(last) {
-                    self.push_ref_at(from_row, &last.to_string(), edge_kind_index("references").unwrap(), node);
+                    self.push_ref_at(
+                        from_row,
+                        &last.to_string(),
+                        edge_kind_index("references").unwrap(),
+                        node,
+                    );
                 }
             }
             _ => {
@@ -1285,8 +1503,11 @@ impl<'t> Walker<'t> {
                 if !is_php_callable_hof(callee) {
                     return;
                 }
-                let Some(content) = self.php_string_content(v) else { return };
-                if simple_callable_re().is_match(&content) || qualified_callable_re().is_match(&content)
+                let Some(content) = self.php_string_content(v) else {
+                    return;
+                };
+                if simple_callable_re().is_match(&content)
+                    || qualified_callable_re().is_match(&content)
                 {
                     self.push_fn_ref_cand(from, &content, v, true);
                 }
@@ -1299,11 +1520,15 @@ impl<'t> Walker<'t> {
                 }
                 let recv = v.named_child(0).and_then(|e| e.named_child(0));
                 let str_el = v.named_child(1).and_then(|e| e.named_child(0));
-                let (Some(recv), Some(str_el)) = (recv, str_el) else { return };
+                let (Some(recv), Some(str_el)) = (recv, str_el) else {
+                    return;
+                };
                 if !matches!(str_el.kind(), "encapsed_string" | "string") {
                     return;
                 }
-                let Some(member) = self.php_string_content(str_el) else { return };
+                let Some(member) = self.php_string_content(str_el) else {
+                    return;
+                };
                 if !simple_callable_re().is_match(&member) {
                     return;
                 }
@@ -1328,7 +1553,9 @@ impl<'t> Walker<'t> {
     /// phpStringContent: the string's first string_content child, trimmed.
     fn php_string_content(&self, node: Node) -> Option<String> {
         for i in 0..node.named_child_count() {
-            let Some(c) = node.named_child(i) else { continue };
+            let Some(c) = node.named_child(i) else {
+                continue;
+            };
             if c.kind() == "string_content" {
                 return Some(self.text(c).trim().to_string());
             }
@@ -1362,7 +1589,10 @@ impl<'t> Walker<'t> {
         if depth > 0
             && matches!(
                 node.kind(),
-                "function_definition" | "arrow_function" | "function_expression" | "lambda_literal"
+                "function_definition"
+                    | "arrow_function"
+                    | "function_expression"
+                    | "lambda_literal"
                     | "lambda_expression"
             )
         {
@@ -1444,7 +1674,10 @@ impl<'t> Walker<'t> {
                 // `name` is the php-live reader kind — ANY textual occurrence
                 // of a target name in a reader's subtree emits (const reads,
                 // `self::MAX`, `$MAX` variable names, interpolated `$MAX`).
-                if matches!(n.kind(), "identifier" | "constant" | "name" | "simple_identifier") {
+                if matches!(
+                    n.kind(),
+                    "identifier" | "constant" | "name" | "simple_identifier"
+                ) {
                     let ref_name = self.text(n);
                     if let Some(&target_row) = targets.get(ref_name) {
                         let target_id = self.node_ids[target_row as usize].as_str();
@@ -1488,7 +1721,10 @@ fn php_enclosing_call_name(node: Node) -> Option<Node> {
         if c.kind() == "function_call_expression" {
             return c.child_by_field_name("function");
         }
-        if matches!(c.kind(), "member_call_expression" | "scoped_call_expression") {
+        if matches!(
+            c.kind(),
+            "member_call_expression" | "scoped_call_expression"
+        ) {
             return None;
         }
         cur = c.parent();

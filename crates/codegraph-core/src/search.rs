@@ -122,7 +122,10 @@ pub fn bounded_edit_distance(a: &str, b: &str, max: usize) -> usize {
 
 /// Lowercase and drop everything but `[a-z0-9]`.
 pub fn normalize_name_token(raw: &str) -> String {
-    raw.to_lowercase().chars().filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit()).collect()
+    raw.to_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        .collect()
 }
 
 /// Tokens naming the project itself (go module, package name, directory).
@@ -136,7 +139,8 @@ pub fn derive_project_name_tokens(project_root: &std::path::Path) -> HashSet<Str
         }
     };
     if let Ok(gomod) = std::fs::read_to_string(project_root.join("go.mod")) {
-        static MODULE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*module\s+(\S+)").unwrap());
+        static MODULE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"(?m)^\s*module\s+(\S+)").unwrap());
         if let Some(m) = MODULE.captures(&gomod) {
             add(m[1].rsplit('/').next().unwrap_or(""));
         }
@@ -152,22 +156,126 @@ pub fn derive_project_name_tokens(project_root: &std::path::Path) -> HashSet<Str
             }
         }
     }
-    if let Some(base) = project_root.canonicalize().ok().as_deref().and_then(|p| p.file_name()) {
+    if let Some(base) = project_root
+        .canonicalize()
+        .ok()
+        .as_deref()
+        .and_then(|p| p.file_name())
+    {
         add(&base.to_string_lossy());
     }
     tokens
 }
 
 pub const STOP_WORDS: &[&str] = &[
-    "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by", "from", "is",
-    "it", "that", "this", "are", "was", "be", "has", "had", "have", "do", "does", "did", "will", "would",
-    "could", "should", "may", "might", "can", "shall", "not", "no", "all", "each", "every", "how", "what",
-    "where", "when", "who", "which", "why", "i", "me", "my", "we", "our", "you", "your", "he", "she",
-    "they", "show", "give", "tell", "been", "done", "made", "used", "using", "work", "works", "found",
-    "also", "into", "then", "than", "just", "more", "some", "such", "over", "only", "out", "its", "so",
-    "up", "as", "if", "look", "need", "needs", "want", "happen", "happens", "affect", "affected", "break",
-    "breaks", "failing", "implemented", "implement", "code", "file", "files", "function", "method",
-    "class", "type", "fix", "bug", "called",
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "but",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "of",
+    "with",
+    "by",
+    "from",
+    "is",
+    "it",
+    "that",
+    "this",
+    "are",
+    "was",
+    "be",
+    "has",
+    "had",
+    "have",
+    "do",
+    "does",
+    "did",
+    "will",
+    "would",
+    "could",
+    "should",
+    "may",
+    "might",
+    "can",
+    "shall",
+    "not",
+    "no",
+    "all",
+    "each",
+    "every",
+    "how",
+    "what",
+    "where",
+    "when",
+    "who",
+    "which",
+    "why",
+    "i",
+    "me",
+    "my",
+    "we",
+    "our",
+    "you",
+    "your",
+    "he",
+    "she",
+    "they",
+    "show",
+    "give",
+    "tell",
+    "been",
+    "done",
+    "made",
+    "used",
+    "using",
+    "work",
+    "works",
+    "found",
+    "also",
+    "into",
+    "then",
+    "than",
+    "just",
+    "more",
+    "some",
+    "such",
+    "over",
+    "only",
+    "out",
+    "its",
+    "so",
+    "up",
+    "as",
+    "if",
+    "look",
+    "need",
+    "needs",
+    "want",
+    "happen",
+    "happens",
+    "affect",
+    "affected",
+    "break",
+    "breaks",
+    "failing",
+    "implemented",
+    "implement",
+    "code",
+    "file",
+    "files",
+    "function",
+    "method",
+    "class",
+    "type",
+    "fix",
+    "bug",
+    "called",
 ];
 
 pub fn is_stop_word(w: &str) -> bool {
@@ -222,9 +330,11 @@ pub fn stem_variants(term: &str) -> Vec<String> {
     v.into_iter().filter(|s| s.len() >= 3 && *s != t).collect()
 }
 
-static COMPOUND: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\b([a-zA-Z][a-zA-Z0-9]*(?:[A-Z][a-z]+)+|[A-Z][a-z]+(?:[A-Z][a-z]*)+)\b").unwrap());
-static SNAKE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b([a-zA-Z][a-zA-Z0-9]*(?:_[a-zA-Z0-9]+)+)\b").unwrap());
+static COMPOUND: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b([a-zA-Z][a-zA-Z0-9]*(?:[A-Z][a-z]+)+|[A-Z][a-z]+(?:[A-Z][a-z]*)+)\b").unwrap()
+});
+static SNAKE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([a-zA-Z][a-zA-Z0-9]*(?:_[a-zA-Z0-9]+)+)\b").unwrap());
 static LOWER_UPPER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([a-z])([A-Z])").unwrap());
 static ACRONYM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([A-Z]+)([A-Z][a-z])").unwrap());
 static NON_ALNUM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[^a-zA-Z0-9]+").unwrap());
@@ -296,8 +406,11 @@ pub fn score_path_relevance(
     if all.is_empty() {
         return 0.0;
     }
-    let kept: Vec<&str> =
-        all.iter().copied().filter(|w| !project_name_tokens.contains(&normalize_name_token(w))).collect();
+    let kept: Vec<&str> = all
+        .iter()
+        .copied()
+        .filter(|w| !project_name_tokens.contains(&normalize_name_token(w)))
+        .collect();
     let scored = if kept.is_empty() { all } else { kept };
     let mut groups: Vec<(Vec<String>, u32)> = Vec::new();
     for word in scored {
@@ -338,16 +451,20 @@ pub fn is_test_file(file_path: &str) -> bool {
     is_test_path(file_path) || matches_non_production_dir(&file_path.to_lowercase())
 }
 
-static TEST_SUFFIX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[._-](test|tests|unittest|unittests|spec|specs)\.[a-z0-9]+$").unwrap());
-static TEST_CLASS_SUFFIX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?:Test|Tests|TestCase|Tester|Spec|Specs)\.[A-Za-z0-9]+$").unwrap());
-static TEST_DIR_CLASS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|/)[A-Za-z0-9]*(?:Test|Tests|Spec)/").unwrap());
+static TEST_SUFFIX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[._-](test|tests|unittest|unittests|spec|specs)\.[a-z0-9]+$").unwrap()
+});
+static TEST_CLASS_SUFFIX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:Test|Tests|TestCase|Tester|Spec|Specs)\.[A-Za-z0-9]+$").unwrap()
+});
+static TEST_DIR_CLASS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:^|/)[A-Za-z0-9]*(?:Test|Tests|Spec)/").unwrap());
 static TEST_DIR_MISC: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?:^|/)(?:[\w.]+[-_]test(?:s|ing)?|testdata|testutils?|test[-_]utils?|fakes?|mocks?|__mocks__|stubs)/")
         .unwrap()
 });
-static TEST_DIR_UNIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|/)(?:unittests|[\w.]+[-_]unittests?)/").unwrap());
+static TEST_DIR_UNIT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:^|/)(?:unittests|[\w.]+[-_]unittests?)/").unwrap());
 
 /// Whether a path is a test file by name or by directory convention.
 pub fn is_test_path(file_path: &str) -> bool {
@@ -361,8 +478,16 @@ pub fn is_test_path(file_path: &str) -> bool {
     {
         return true;
     }
-    const DIRS: &[&str] =
-        &["/tests/", "/test/", "/__tests__/", "/spec/", "/specs/", "/testlib/", "/testing/", "/e2e/"];
+    const DIRS: &[&str] = &[
+        "/tests/",
+        "/test/",
+        "/__tests__/",
+        "/spec/",
+        "/specs/",
+        "/testlib/",
+        "/testing/",
+        "/e2e/",
+    ];
     const PREFIXES: &[&str] = &["test/", "tests/", "spec/", "specs/", "e2e/"];
     DIRS.iter().any(|d| lower.contains(d))
         || PREFIXES.iter().any(|p| lower.starts_with(p))
@@ -373,15 +498,25 @@ pub fn is_test_path(file_path: &str) -> bool {
 
 fn matches_non_production_dir(lower: &str) -> bool {
     const DIRS: &[&str] = &[
-        "integration", "sample", "samples", "example", "examples", "fixture", "fixtures", "benchmark",
-        "benchmarks", "demo", "demos",
+        "integration",
+        "sample",
+        "samples",
+        "example",
+        "examples",
+        "fixture",
+        "fixtures",
+        "benchmark",
+        "benchmarks",
+        "demo",
+        "demos",
     ];
     let scope = match lower.find("/src/") {
         Some(i) => &lower[..i + 1],
         None if lower.starts_with("src/") => "",
         None => lower,
     };
-    DIRS.iter().any(|d| scope.contains(&format!("/{d}/")) || scope.starts_with(&format!("{d}/")))
+    DIRS.iter()
+        .any(|d| scope.contains(&format!("/{d}/")) || scope.starts_with(&format!("{d}/")))
 }
 
 static NAME_TERM_SPLIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\s_.\-]+").unwrap());
@@ -394,7 +529,11 @@ pub fn name_match_bonus(node_name: &str, query: &str) -> f64 {
         .map(str::to_lowercase)
         .filter(|t| t.len() >= 2)
         .collect();
-    let query_tokens: Vec<String> = query.split_whitespace().map(str::to_lowercase).filter(|t| t.len() >= 2).collect();
+    let query_tokens: Vec<String> = query
+        .split_whitespace()
+        .map(str::to_lowercase)
+        .filter(|t| t.len() >= 2)
+        .collect();
     let q: String = query.split_whitespace().collect::<String>().to_lowercase();
     if name == q {
         return 80.0;
@@ -446,7 +585,8 @@ const MAX_SEGMENTS_PER_NAME: usize = 12;
 
 /// Runs of letters/digits in `s`.
 fn alnum_runs(s: &str) -> impl Iterator<Item = &str> {
-    s.split(|c: char| !c.is_alphanumeric()).filter(|r| !r.is_empty())
+    s.split(|c: char| !c.is_alphanumeric())
+        .filter(|r| !r.is_empty())
 }
 
 /// Split one alphanumeric run at camelCase boundaries (`HTTPServer` → `HTTP`, `Server`).
@@ -481,7 +621,9 @@ pub fn split_identifier_segments(name: &str) -> Vec<String> {
             }
             let seg = part.to_lowercase();
             let n = seg.chars().count();
-            if !(MIN_SEGMENT_CHARS..=MAX_SEGMENT_CHARS).contains(&n) || seg.chars().all(char::is_numeric) {
+            if !(MIN_SEGMENT_CHARS..=MAX_SEGMENT_CHARS).contains(&n)
+                || seg.chars().all(char::is_numeric)
+            {
                 continue;
             }
             if !out.contains(&seg) {
@@ -497,24 +639,204 @@ const MIN_PROSE_CHARS: usize = 4;
 const MAX_PROSE_CHARS: usize = 24;
 
 const ENGLISH_PROSE_STOPWORDS: &[&str] = &[
-    "about", "above", "actually", "after", "again", "against", "almost", "along", "also", "always", "another",
-    "anything", "around", "away", "back", "because", "been", "before", "behind", "being", "below", "best",
-    "better", "between", "both", "cannot", "come", "could", "does", "doing", "done", "down", "each", "either",
-    "else", "even", "ever", "every", "everything", "fine", "first", "from", "getting", "give", "goes", "going",
-    "gone", "good", "great", "have", "having", "help", "here", "inside", "instead", "into", "just", "keep",
-    "know", "last", "least", "less", "like", "likely", "little", "look", "looking", "made", "make", "making",
-    "many", "maybe", "mind", "more", "most", "much", "must", "need", "needs", "never", "next", "nice", "none",
-    "nothing", "okay", "only", "onto", "other", "otherwise", "over", "please", "pretty", "probably", "quite",
-    "rather", "really", "right", "same", "seem", "seems", "should", "show", "since", "some", "someone",
-    "something", "somewhere", "soon", "still", "such", "sure", "take", "than", "thank", "thanks", "that",
-    "their", "them", "then", "there", "these", "they", "thing", "things", "think", "this", "those", "though",
-    "tried", "tries", "trying", "under", "until", "upon", "very", "want", "wants", "well", "went", "were",
-    "what", "when", "which", "while", "will", "wish", "with", "within", "without", "would", "wrong", "your",
-    "yours", "change", "changes", "check", "class", "classes", "code", "detail", "details", "directory",
-    "error", "errors", "example", "examples", "file", "files", "folder", "function", "functions", "issue",
-    "issues", "line", "lines", "method", "methods", "name", "names", "problem", "problems", "project",
-    "question", "questions", "rename", "test", "tests", "type", "types", "update", "value", "values",
-    "warning", "warnings", "work", "working", "write", "writing",
+    "about",
+    "above",
+    "actually",
+    "after",
+    "again",
+    "against",
+    "almost",
+    "along",
+    "also",
+    "always",
+    "another",
+    "anything",
+    "around",
+    "away",
+    "back",
+    "because",
+    "been",
+    "before",
+    "behind",
+    "being",
+    "below",
+    "best",
+    "better",
+    "between",
+    "both",
+    "cannot",
+    "come",
+    "could",
+    "does",
+    "doing",
+    "done",
+    "down",
+    "each",
+    "either",
+    "else",
+    "even",
+    "ever",
+    "every",
+    "everything",
+    "fine",
+    "first",
+    "from",
+    "getting",
+    "give",
+    "goes",
+    "going",
+    "gone",
+    "good",
+    "great",
+    "have",
+    "having",
+    "help",
+    "here",
+    "inside",
+    "instead",
+    "into",
+    "just",
+    "keep",
+    "know",
+    "last",
+    "least",
+    "less",
+    "like",
+    "likely",
+    "little",
+    "look",
+    "looking",
+    "made",
+    "make",
+    "making",
+    "many",
+    "maybe",
+    "mind",
+    "more",
+    "most",
+    "much",
+    "must",
+    "need",
+    "needs",
+    "never",
+    "next",
+    "nice",
+    "none",
+    "nothing",
+    "okay",
+    "only",
+    "onto",
+    "other",
+    "otherwise",
+    "over",
+    "please",
+    "pretty",
+    "probably",
+    "quite",
+    "rather",
+    "really",
+    "right",
+    "same",
+    "seem",
+    "seems",
+    "should",
+    "show",
+    "since",
+    "some",
+    "someone",
+    "something",
+    "somewhere",
+    "soon",
+    "still",
+    "such",
+    "sure",
+    "take",
+    "than",
+    "thank",
+    "thanks",
+    "that",
+    "their",
+    "them",
+    "then",
+    "there",
+    "these",
+    "they",
+    "thing",
+    "things",
+    "think",
+    "this",
+    "those",
+    "though",
+    "tried",
+    "tries",
+    "trying",
+    "under",
+    "until",
+    "upon",
+    "very",
+    "want",
+    "wants",
+    "well",
+    "went",
+    "were",
+    "what",
+    "when",
+    "which",
+    "while",
+    "will",
+    "wish",
+    "with",
+    "within",
+    "without",
+    "would",
+    "wrong",
+    "your",
+    "yours",
+    "change",
+    "changes",
+    "check",
+    "class",
+    "classes",
+    "code",
+    "detail",
+    "details",
+    "directory",
+    "error",
+    "errors",
+    "example",
+    "examples",
+    "file",
+    "files",
+    "folder",
+    "function",
+    "functions",
+    "issue",
+    "issues",
+    "line",
+    "lines",
+    "method",
+    "methods",
+    "name",
+    "names",
+    "problem",
+    "problems",
+    "project",
+    "question",
+    "questions",
+    "rename",
+    "test",
+    "tests",
+    "type",
+    "types",
+    "update",
+    "value",
+    "values",
+    "warning",
+    "warnings",
+    "work",
+    "working",
+    "write",
+    "writing",
 ];
 
 /// Lowercase with combining marks removed (`Café` → `cafe` for decomposable input).
@@ -556,7 +878,10 @@ pub fn extract_segment_search_words(query: &str) -> Vec<String> {
     let mut segments = Vec::new();
     for run in alnum_runs(query) {
         let chars: Vec<char> = run.chars().collect();
-        if chars.windows(2).any(|w| (w[0].is_lowercase() || w[0].is_numeric()) && w[1].is_uppercase()) {
+        if chars
+            .windows(2)
+            .any(|w| (w[0].is_lowercase() || w[0].is_numeric()) && w[1].is_uppercase())
+        {
             segments.extend(split_identifier_segments(run));
         }
     }
@@ -576,11 +901,17 @@ pub fn segment_lookup_variants(word: &str) -> Vec<String> {
     let n = word.len();
     let strip2 = n >= MIN_PROSE_CHARS + 2;
     let strip1 = n >= MIN_PROSE_CHARS + 1;
-    if ["xes", "shes", "sses", "zzes"].iter().any(|s| word.ends_with(s)) {
+    if ["xes", "shes", "sses", "zzes"]
+        .iter()
+        .any(|s| word.ends_with(s))
+    {
         if strip2 {
             v.push(word[..n - 2].to_string());
         }
-    } else if ["ches", "ses", "zes", "oes"].iter().any(|s| word.ends_with(s)) {
+    } else if ["ches", "ses", "zes", "oes"]
+        .iter()
+        .any(|s| word.ends_with(s))
+    {
         if strip2 {
             v.push(word[..n - 2].to_string());
         }
@@ -626,8 +957,14 @@ mod tests {
 
     #[test]
     fn segments_split_camel_and_acronyms() {
-        assert_eq!(split_identifier_segments("OrderStateMachine"), vec!["order", "state", "machine"]);
-        assert_eq!(split_identifier_segments("HTTPServer_v2"), vec!["http", "server", "v2"]);
+        assert_eq!(
+            split_identifier_segments("OrderStateMachine"),
+            vec!["order", "state", "machine"]
+        );
+        assert_eq!(
+            split_identifier_segments("HTTPServer_v2"),
+            vec!["http", "server", "v2"]
+        );
     }
 
     #[test]
@@ -643,6 +980,9 @@ mod tests {
     #[test]
     fn name_bonus_prefers_exact() {
         assert_eq!(name_match_bonus("getUser", "getUser"), 80.0);
-        assert!(name_match_bonus("getUserById", "getUser") > name_match_bonus("fetchGetUser", "getUser"));
+        assert!(
+            name_match_bonus("getUserById", "getUser")
+                > name_match_bonus("fetchGetUser", "getUser")
+        );
     }
 }

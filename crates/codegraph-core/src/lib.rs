@@ -87,7 +87,10 @@ string_enum!(
 impl NodeKind {
     /// Kinds that can be called or contain executable code.
     pub fn is_callable(self) -> bool {
-        matches!(self, NodeKind::Function | NodeKind::Method | NodeKind::Route | NodeKind::Component)
+        matches!(
+            self,
+            NodeKind::Function | NodeKind::Method | NodeKind::Route | NodeKind::Component
+        )
     }
 
     /// Kinds that declare a type.
@@ -152,7 +155,10 @@ impl ReferenceKind {
     pub fn edge_kind(self) -> EdgeKind {
         match self {
             ReferenceKind::FunctionRef => EdgeKind::References,
-            other => other.as_str().parse().expect("reference kinds mirror edge kinds"),
+            other => other
+                .as_str()
+                .parse()
+                .expect("reference kinds mirror edge kinds"),
         }
     }
 }
@@ -513,7 +519,15 @@ mod tests {
 
     #[test]
     fn node_serializes_camel_case() {
-        let n = Node::new("function:x", NodeKind::Function, "x", "a.ts", Language::TypeScript, 1, 2);
+        let n = Node::new(
+            "function:x",
+            NodeKind::Function,
+            "x",
+            "a.ts",
+            Language::TypeScript,
+            1,
+            2,
+        );
         let v = serde_json::to_value(&n).unwrap();
         assert_eq!(v["qualifiedName"], "x");
         assert_eq!(v["kind"], "function");

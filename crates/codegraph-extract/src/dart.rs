@@ -61,8 +61,18 @@ const DECORATOR_STEP_OVER: &[&str] = &["comment", "documentation_comment"];
 fn is_stoplisted(name: &str) -> bool {
     matches!(
         name,
-        "this" | "self" | "super" | "null" | "nil" | "true" | "false" | "undefined" | "new"
-            | "NULL" | "nullptr" | "None"
+        "this"
+            | "self"
+            | "super"
+            | "null"
+            | "nil"
+            | "true"
+            | "false"
+            | "undefined"
+            | "new"
+            | "NULL"
+            | "nullptr"
+            | "None"
     )
 }
 
@@ -70,15 +80,72 @@ fn is_stoplisted(name: &str) -> bool {
 fn is_builtin_type(name: &str) -> bool {
     matches!(
         name,
-        "string" | "number" | "boolean" | "void" | "null" | "undefined" | "never" | "any"
-            | "unknown" | "object" | "symbol" | "bigint" | "true" | "false"
-            | "str" | "bool" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize"
-            | "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "f32" | "f64" | "char"
-            | "int" | "long" | "short" | "byte" | "float" | "double"
-            | "int8" | "int16" | "int32" | "int64" | "uint8" | "uint16" | "uint32" | "uint64"
-            | "float32" | "float64" | "complex64" | "complex128" | "rune" | "error"
-            | "Int" | "Long" | "Short" | "Byte" | "Float" | "Double" | "Boolean" | "Char"
-            | "Unit" | "String" | "Any" | "AnyRef" | "AnyVal" | "Nothing" | "Null"
+        "string"
+            | "number"
+            | "boolean"
+            | "void"
+            | "null"
+            | "undefined"
+            | "never"
+            | "any"
+            | "unknown"
+            | "object"
+            | "symbol"
+            | "bigint"
+            | "true"
+            | "false"
+            | "str"
+            | "bool"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "f32"
+            | "f64"
+            | "char"
+            | "int"
+            | "long"
+            | "short"
+            | "byte"
+            | "float"
+            | "double"
+            | "int8"
+            | "int16"
+            | "int32"
+            | "int64"
+            | "uint8"
+            | "uint16"
+            | "uint32"
+            | "uint64"
+            | "float32"
+            | "float64"
+            | "complex64"
+            | "complex128"
+            | "rune"
+            | "error"
+            | "Int"
+            | "Long"
+            | "Short"
+            | "Byte"
+            | "Float"
+            | "Double"
+            | "Boolean"
+            | "Char"
+            | "Unit"
+            | "String"
+            | "Any"
+            | "AnyRef"
+            | "AnyVal"
+            | "Nothing"
+            | "Null"
     )
 }
 
@@ -116,7 +183,10 @@ fn is_upper_camel(text: &str) -> bool {
 /// factory `const factory Foo.bar() = _Bar;`, each a signature kind of its
 /// own inside a `declaration`.
 fn is_bodiless_ctor(kind: &str) -> bool {
-    matches!(kind, "constant_constructor_signature" | "redirecting_factory_constructor_signature")
+    matches!(
+        kind,
+        "constant_constructor_signature" | "redirecting_factory_constructor_signature"
+    )
 }
 
 /// DART_LOWERCASE_TYPES (dart.ts) — Dart's lowercase built-in types, which a
@@ -282,7 +352,11 @@ pub fn extract(file_path: &str, source: &str) -> Result<EmitOut, String> {
         extra_json: NONE_STR,
     });
     w.node_ids.push(ids::file_node_id(file_path));
-    w.stack.push(Scope { row: 0, kind: "file", name: base_name.to_string() });
+    w.stack.push(Scope {
+        row: 0,
+        kind: "file",
+        name: base_name.to_string(),
+    });
 
     w.visit(tree.root_node());
     w.flush_fn_ref_candidates();
@@ -308,10 +382,20 @@ impl<'t> Walker<'t> {
         node.start_position().row as u32 + 1
     }
     fn col_of(&self, node: Node) -> u32 {
-        util::col16(self.src, &self.line_starts, node.start_position().row, node.start_byte())
+        util::col16(
+            self.src,
+            &self.line_starts,
+            node.start_position().row,
+            node.start_byte(),
+        )
     }
     fn end_col_of(&self, node: Node) -> u32 {
-        util::col16(self.src, &self.line_starts, node.end_position().row, node.end_byte())
+        util::col16(
+            self.src,
+            &self.line_starts,
+            node.end_position().row,
+            node.end_byte(),
+        )
     }
     fn top_row(&self) -> u32 {
         self.stack.last().map(|s| s.row).unwrap_or(0)
@@ -319,7 +403,12 @@ impl<'t> Walker<'t> {
     fn inside_class_like(&self) -> bool {
         self.stack
             .last()
-            .map(|s| matches!(s.kind, "class" | "struct" | "interface" | "trait" | "enum" | "module"))
+            .map(|s| {
+                matches!(
+                    s.kind,
+                    "class" | "struct" | "interface" | "trait" | "enum" | "module"
+                )
+            })
             .unwrap_or(false)
     }
 
@@ -348,13 +437,21 @@ impl<'t> Walker<'t> {
 
     // --- createNode (tree-sitter.ts:1308) ---------------------------------
 
-    fn create_node(&mut self, kind: &'static str, name: &str, node: Node<'t>, extra: Extra) -> Option<u32> {
+    fn create_node(
+        &mut self,
+        kind: &'static str,
+        name: &str,
+        node: Node<'t>,
+        extra: Extra,
+    ) -> Option<u32> {
         if name.is_empty() {
             return None;
         }
         let start_line = self.line_of(node);
         let column = self.col_of(node);
-        let id = self.node_id_allocator.generate(self.file_path, kind, name, start_line, column);
+        let id = self
+            .node_id_allocator
+            .generate(self.file_path, kind, name, start_line, column);
 
         let qualified = {
             let mut parts: Vec<&str> = Vec::new();
@@ -445,7 +542,11 @@ impl<'t> Walker<'t> {
             }
         }
         if matches!(kind, "function" | "method" | "constant" | "variable") {
-            self.value_scopes.push(ValueScope { row, node, name: name.to_string() });
+            self.value_scopes.push(ValueScope {
+                row,
+                node,
+                name: name.to_string(),
+            });
         }
 
         Some(row)
@@ -458,7 +559,10 @@ impl<'t> Walker<'t> {
         if node.kind() == "method_signature" {
             let mut cursor = node.walk();
             let inner = node.named_children(&mut cursor).find(|c| {
-                matches!(c.kind(), "function_signature" | "getter_signature" | "setter_signature")
+                matches!(
+                    c.kind(),
+                    "function_signature" | "getter_signature" | "setter_signature"
+                )
             });
             if let Some(inner) = inner {
                 return inner;
@@ -469,15 +573,20 @@ impl<'t> Walker<'t> {
 
     /// dartConstructorSignature (dart.ts:25-35).
     fn constructor_signature(&self, node: Node<'t>) -> Option<Node<'t>> {
-        if matches!(node.kind(), "factory_constructor_signature" | "constructor_signature")
-            || is_bodiless_ctor(node.kind())
+        if matches!(
+            node.kind(),
+            "factory_constructor_signature" | "constructor_signature"
+        ) || is_bodiless_ctor(node.kind())
         {
             return Some(node);
         }
         if node.kind() == "method_signature" {
             let mut cursor = node.walk();
             return node.named_children(&mut cursor).find(|c| {
-                matches!(c.kind(), "factory_constructor_signature" | "constructor_signature")
+                matches!(
+                    c.kind(),
+                    "factory_constructor_signature" | "constructor_signature"
+                )
             });
         }
         None
@@ -489,7 +598,11 @@ impl<'t> Walker<'t> {
         while let Some(parent) = p {
             if matches!(
                 parent.kind(),
-                "class_definition" | "mixin_declaration" | "extension_declaration" | "extension_type_declaration" | "enum_declaration"
+                "class_definition"
+                    | "mixin_declaration"
+                    | "extension_declaration"
+                    | "extension_type_declaration"
+                    | "enum_declaration"
             ) {
                 return parent.child_by_field_name("name").map(|n| self.text(n));
             }
@@ -589,7 +702,10 @@ impl<'t> Walker<'t> {
         let name_node = if node.kind() == "method_signature" {
             let mut cursor = node.walk();
             let inner = node.named_children(&mut cursor).find(|c| {
-                matches!(c.kind(), "function_signature" | "getter_signature" | "setter_signature")
+                matches!(
+                    c.kind(),
+                    "function_signature" | "getter_signature" | "setter_signature"
+                )
             });
             inner.and_then(|i| {
                 let mut ic = i.walk();
@@ -703,10 +819,14 @@ impl<'t> Walker<'t> {
         // `class A = B with C;` — the mixin application's own identifier.
         if node.kind() == "class_definition" {
             let mut cursor = node.walk();
-            let application = node.named_children(&mut cursor).find(|c| c.kind() == "mixin_application_class");
+            let application = node
+                .named_children(&mut cursor)
+                .find(|c| c.kind() == "mixin_application_class");
             if let Some(application) = application {
                 let mut ac = application.walk();
-                let id = application.named_children(&mut ac).find(|c| c.kind() == "identifier");
+                let id = application
+                    .named_children(&mut ac)
+                    .find(|c| c.kind() == "identifier");
                 if let Some(id) = id {
                     return self.text(id).to_string();
                 }
@@ -720,13 +840,18 @@ impl<'t> Walker<'t> {
             let inner = node.named_children(&mut cursor).find(|c| {
                 matches!(
                     c.kind(),
-                    "function_signature" | "getter_signature" | "setter_signature"
-                        | "constructor_signature" | "factory_constructor_signature"
+                    "function_signature"
+                        | "getter_signature"
+                        | "setter_signature"
+                        | "constructor_signature"
+                        | "factory_constructor_signature"
                 )
             });
             if let Some(inner) = inner {
                 let mut ic = inner.walk();
-                let id = inner.named_children(&mut ic).find(|c| c.kind() == "identifier");
+                let id = inner
+                    .named_children(&mut ic)
+                    .find(|c| c.kind() == "identifier");
                 if let Some(id) = id {
                     return self.text(id).to_string();
                 }
@@ -734,7 +859,10 @@ impl<'t> Walker<'t> {
         }
         let mut cursor = node.walk();
         for c in node.named_children(&mut cursor) {
-            if matches!(c.kind(), "identifier" | "type_identifier" | "simple_identifier" | "constant") {
+            if matches!(
+                c.kind(),
+                "identifier" | "type_identifier" | "simple_identifier" | "constant"
+            ) {
                 return self.text(c).to_string();
             }
         }
@@ -748,7 +876,9 @@ impl<'t> Walker<'t> {
         // The visitNode hook (dart.ts:144-157) — the constants branch.
         if node.kind() == "static_final_declaration" {
             let mut cursor = node.walk();
-            let name_node = node.named_children(&mut cursor).find(|c| c.kind() == "identifier");
+            let name_node = node
+                .named_children(&mut cursor)
+                .find(|c| c.kind() == "identifier");
             if let Some(name_node) = name_node {
                 // signature = first value sibling's text, sliced to 100
                 // UTF-16 units (a flattened chain captures just its head).
@@ -761,13 +891,25 @@ impl<'t> Walker<'t> {
                     }
                 });
                 let name = self.text(name_node).to_string();
-                let constant = self.create_node("constant", &name, node, Extra { signature, ..Default::default() });
+                let constant = self.create_node(
+                    "constant",
+                    &name,
+                    node,
+                    Extra {
+                        signature,
+                        ..Default::default()
+                    },
+                );
                 // The initializer is code the constant runs — its calls,
                 // instantiations, reads and the types it names (#2327) are
                 // the constant's. walkInitializer: the body walk, and the
                 // dispatcher's fn-ref scan skips what it walked.
                 if let Some(constant) = constant {
-                    self.stack.push(Scope { row: constant, kind: "constant", name });
+                    self.stack.push(Scope {
+                        row: constant,
+                        kind: "constant",
+                        name,
+                    });
                     self.visit_body(node);
                     self.stack.pop();
                     return;
@@ -798,19 +940,30 @@ impl<'t> Walker<'t> {
             let mut cursor = node.walk();
             let kids: Vec<Node<'t>> = node.named_children(&mut cursor).collect();
             let is_field = in_body
-                && kids
-                    .iter()
-                    .any(|c| matches!(c.kind(), "initialized_identifier_list" | "static_final_declaration_list"));
+                && kids.iter().any(|c| {
+                    matches!(
+                        c.kind(),
+                        "initialized_identifier_list" | "static_final_declaration_list"
+                    )
+                });
             if is_field {
                 let owner = self.top_row();
                 for child in kids {
-                    if !matches!(child.kind(), "initialized_identifier_list" | "static_final_declaration_list") {
+                    if !matches!(
+                        child.kind(),
+                        "initialized_identifier_list" | "static_final_declaration_list"
+                    ) {
                         self.type_refs_dart(child, owner);
                     }
                 }
             }
-        } else if matches!(node.kind(), "type_identifier" | "type_arguments" | "function_type" | "record_type")
-            && node.parent().map(|p| p.kind() == "program").unwrap_or(false)
+        } else if matches!(
+            node.kind(),
+            "type_identifier" | "type_arguments" | "function_type" | "record_type"
+        ) && node
+            .parent()
+            .map(|p| p.kind() == "program")
+            .unwrap_or(false)
         {
             let owner = self.top_row();
             self.type_refs_dart(node, owner);
@@ -831,7 +984,10 @@ impl<'t> Walker<'t> {
             // different node from `extension_declaration` above, which is the
             // older `extension` — the names are near neighbours and only one of
             // them was listed.
-            "class_definition" | "mixin_declaration" | "extension_declaration" | "extension_type_declaration" => {
+            "class_definition"
+            | "mixin_declaration"
+            | "extension_declaration"
+            | "extension_type_declaration" => {
                 self.extract_class(node);
                 return;
             }
@@ -922,7 +1078,11 @@ impl<'t> Walker<'t> {
         let Some(row) = row else { return };
         self.extract_type_annotations(node, row);
         self.extract_decorators_for(node, row);
-        self.stack.push(Scope { row, kind: "function", name });
+        self.stack.push(Scope {
+            row,
+            kind: "function",
+            name,
+        });
         if let Some(body) = body {
             self.visit_body(body);
         }
@@ -970,7 +1130,11 @@ impl<'t> Walker<'t> {
         let Some(row) = row else { return };
         self.extract_type_annotations(node, row);
         self.extract_decorators_for(node, row);
-        self.stack.push(Scope { row, kind: "method", name });
+        self.stack.push(Scope {
+            row,
+            kind: "method",
+            name,
+        });
         if let Some(body) = body {
             self.visit_body(body);
         }
@@ -992,13 +1156,21 @@ impl<'t> Walker<'t> {
             "class",
             &name,
             node,
-            Extra { docstring, visibility, ..Default::default() },
+            Extra {
+                docstring,
+                visibility,
+                ..Default::default()
+            },
         );
         let Some(row) = row else { return };
         self.extract_inheritance(node, row);
         // extractCsharpPrimaryCtorParamRefs — csharp-gated no-op.
         self.extract_decorators_for(node, row);
-        self.stack.push(Scope { row, kind: "class", name });
+        self.stack.push(Scope {
+            row,
+            kind: "class",
+            name,
+        });
         let body = resolved_body.unwrap_or(node);
         let mut cursor = body.walk();
         let children: Vec<Node<'t>> = body.named_children(&mut cursor).collect();
@@ -1023,14 +1195,22 @@ impl<'t> Walker<'t> {
             "enum",
             &name,
             node,
-            Extra { docstring, visibility, ..Default::default() },
+            Extra {
+                docstring,
+                visibility,
+                ..Default::default()
+            },
         );
         let Some(row) = row else { return };
         // Enum `with` mixins are a DIRECT child (no superclass wrapper) →
         // no clause matches; `interfaces` DOES → implements only.
         self.extract_inheritance(node, row);
         // No extractDecoratorsFor on the enum path.
-        self.stack.push(Scope { row, kind: "enum", name });
+        self.stack.push(Scope {
+            row,
+            kind: "enum",
+            name,
+        });
         let mut cursor = body.walk();
         let children: Vec<Node<'t>> = body.named_children(&mut cursor).collect();
         for child in children {
@@ -1063,7 +1243,15 @@ impl<'t> Walker<'t> {
         // type_alias has no fields (no `value`): the dart branch reads the
         // aliased type from the rest of the declaration (#2327). Returns
         // false → children re-visited (they match nothing type-related).
-        let row = self.create_node("type_alias", &name, node, Extra { docstring, ..Default::default() });
+        let row = self.create_node(
+            "type_alias",
+            &name,
+            node,
+            Extra {
+                docstring,
+                ..Default::default()
+            },
+        );
         if let Some(row) = row {
             self.type_alias_refs(node, row);
         }
@@ -1091,7 +1279,9 @@ impl<'t> Walker<'t> {
     /// declares none.
     fn type_parameter_scope(&self, node: Node<'t>, scope: &[&'t str]) -> Option<Vec<&'t str>> {
         let mut cursor = node.walk();
-        let parameters = node.named_children(&mut cursor).find(|c| c.kind() == "type_parameters")?;
+        let parameters = node
+            .named_children(&mut cursor)
+            .find(|c| c.kind() == "type_parameters")?;
         let mut inner = scope.to_vec();
         let mut pc = parameters.walk();
         for parameter in parameters.named_children(&mut pc) {
@@ -1099,7 +1289,9 @@ impl<'t> Walker<'t> {
                 continue;
             }
             let mut ic = parameter.walk();
-            let name = parameter.named_children(&mut ic).find(|c| c.kind() == "type_identifier");
+            let name = parameter
+                .named_children(&mut ic)
+                .find(|c| c.kind() == "type_identifier");
             if let Some(name) = name {
                 inner.push(self.text(name));
             }
@@ -1114,8 +1306,11 @@ impl<'t> Walker<'t> {
         stack_guard!();
         if node.kind() == "type_identifier" {
             let text = self.text(node);
-            let parameter =
-                scope.contains(&text) && !node.prev_sibling().map(|s| s.kind() == ".").unwrap_or(false);
+            let parameter = scope.contains(&text)
+                && !node
+                    .prev_sibling()
+                    .map(|s| s.kind() == ".")
+                    .unwrap_or(false);
             if !parameter && self.is_type_name_dart(node) {
                 self.push_ref_at(from_row, text, "references", node);
             }
@@ -1135,7 +1330,9 @@ impl<'t> Walker<'t> {
     fn extract_import(&mut self, node: Node<'t>) {
         let find_child = |parent: Node<'t>, kind: &str| -> Option<Node<'t>> {
             let mut cursor = parent.walk();
-            let found = parent.named_children(&mut cursor).find(|c| c.kind() == kind);
+            let found = parent
+                .named_children(&mut cursor)
+                .find(|c| c.kind() == kind);
             found
         };
         let uri_of = |spec: Node<'t>| -> Option<Node<'t>> {
@@ -1146,7 +1343,9 @@ impl<'t> Walker<'t> {
         let mut module: Option<String> = None;
         // A part: `part 'x.g.dart';` holds its `uri` directly.
         if node.kind() == "part_directive" {
-            if let Some(sl) = find_child(node, "uri").and_then(|uri| find_child(uri, "string_literal")) {
+            if let Some(sl) =
+                find_child(node, "uri").and_then(|uri| find_child(uri, "string_literal"))
+            {
                 module = Some(self.text(sl).replace(['\'', '"'], ""));
             }
         }
@@ -1166,13 +1365,18 @@ impl<'t> Walker<'t> {
         }
         // Deferred imports (bare `uri`, no configurable_uri) → hook null →
         // nothing at all (invisible).
-        let Some(module) = module.filter(|m| !m.is_empty()) else { return };
+        let Some(module) = module.filter(|m| !m.is_empty()) else {
+            return;
+        };
         let signature = self.text(node).trim().to_string();
         let created = self.create_node(
             "import",
             &module,
             node,
-            Extra { signature: Some(signature), ..Default::default() },
+            Extra {
+                signature: Some(signature),
+                ..Default::default()
+            },
         );
         if created.is_some() && !self.stack.is_empty() {
             let parent_row = self.top_row();
@@ -1218,7 +1422,9 @@ impl<'t> Walker<'t> {
     fn bare_call_name(&self, node: Node<'t>) -> Option<String> {
         if node.kind() == "selector" {
             let mut cursor = node.walk();
-            let has_arg_part = node.named_children(&mut cursor).any(|c| c.kind() == "argument_part");
+            let has_arg_part = node
+                .named_children(&mut cursor)
+                .any(|c| c.kind() == "argument_part");
             if !has_arg_part {
                 return None;
             }
@@ -1249,9 +1455,13 @@ impl<'t> Walker<'t> {
         // const EdgeInsets.all(8.0) — const constructor call.
         if node.kind() == "const_object_expression" {
             let mut c1 = node.walk();
-            let type_id = node.named_children(&mut c1).find(|c| c.kind() == "type_identifier");
+            let type_id = node
+                .named_children(&mut c1)
+                .find(|c| c.kind() == "type_identifier");
             let mut c2 = node.walk();
-            let name_id = node.named_children(&mut c2).find(|c| c.kind() == "identifier");
+            let name_id = node
+                .named_children(&mut c2)
+                .find(|c| c.kind() == "identifier");
             return match (type_id, name_id) {
                 (Some(t), Some(n)) => Some(format!("{}.{}", self.text(t), self.text(n))),
                 (Some(t), None) => Some(self.text(t).to_string()),
@@ -1264,9 +1474,14 @@ impl<'t> Walker<'t> {
         // LAST type_identifier: an import prefix (`p.X<T>.named`) is one too.
         if node.kind() == "constructor_invocation" {
             let mut c1 = node.walk();
-            let type_id = node.named_children(&mut c1).filter(|c| c.kind() == "type_identifier").last();
+            let type_id = node
+                .named_children(&mut c1)
+                .filter(|c| c.kind() == "type_identifier")
+                .last();
             let mut c2 = node.walk();
-            let name_id = node.named_children(&mut c2).find(|c| c.kind() == "identifier");
+            let name_id = node
+                .named_children(&mut c2)
+                .find(|c| c.kind() == "identifier");
             return match (type_id, name_id) {
                 (Some(t), Some(n)) => Some(format!("{}.{}", self.text(t), self.text(n))),
                 (Some(t), None) => Some(self.text(t).to_string()),
@@ -1310,7 +1525,9 @@ impl<'t> Walker<'t> {
             });
             if let Some(accessor) = accessor {
                 let mut ac = accessor.walk();
-                let method_id = accessor.named_children(&mut ac).find(|c| c.kind() == "identifier");
+                let method_id = accessor
+                    .named_children(&mut ac)
+                    .find(|c| c.kind() == "identifier");
                 if let Some(method_id) = method_id {
                     let accessor_prev = self.receiver_of(prev);
                     if let Some(ap) = accessor_prev {
@@ -1327,10 +1544,17 @@ impl<'t> Walker<'t> {
                         // the chain starts capitalized (#750).
                         if ap.kind() == "selector" {
                             let mut apc = ap.walk();
-                            if ap.named_children(&mut apc).any(|c| c.kind() == "argument_part") {
+                            if ap
+                                .named_children(&mut apc)
+                                .any(|c| c.kind() == "argument_part")
+                            {
                                 if let Some(inner) = self.callee_of_arg_part(ap) {
                                     if starts_upper_re().is_match(&inner) {
-                                        return Some(format!("{}().{}", inner, self.text(method_id)));
+                                        return Some(format!(
+                                            "{}().{}",
+                                            inner,
+                                            self.text(method_id)
+                                        ));
                                     }
                                 }
                             }
@@ -1346,7 +1570,9 @@ impl<'t> Walker<'t> {
             "unconditional_assignable_selector" | "conditional_assignable_selector"
         ) {
             let mut pc = prev.walk();
-            let id = prev.named_children(&mut pc).find(|c| c.kind() == "identifier");
+            let id = prev
+                .named_children(&mut pc)
+                .find(|c| c.kind() == "identifier");
             if let Some(id) = id {
                 return Some(self.text(id).to_string());
             }
@@ -1380,7 +1606,9 @@ impl<'t> Walker<'t> {
             return None;
         }
         let args = outer.named_child(2)?;
-        if !matches!(args.kind(), "parenthesized_expression" | "record_literal") || args.start_byte() != gt.end_byte() {
+        if !matches!(args.kind(), "parenthesized_expression" | "record_literal")
+            || args.start_byte() != gt.end_byte()
+        {
             return None;
         }
         // A comment against the `<` (`ref.read /* c */<Repo>(p)`) is a
@@ -1397,11 +1625,15 @@ impl<'t> Walker<'t> {
         let mut type_name = head;
         let mut rest = head.next_named_sibling();
         if let Some(sel) = rest {
-            let accessor = sel.named_child(0).filter(|a| a.kind() == "unconditional_assignable_selector");
+            let accessor = sel
+                .named_child(0)
+                .filter(|a| a.kind() == "unconditional_assignable_selector");
             if sel.kind() == "selector" {
                 if let Some(accessor) = accessor {
                     let mut ac = accessor.walk();
-                    let name = accessor.named_children(&mut ac).find(|c| c.kind() == "identifier");
+                    let name = accessor
+                        .named_children(&mut ac)
+                        .find(|c| c.kind() == "identifier");
                     type_name = name?;
                     rest = sel.next_named_sibling();
                 }
@@ -1409,7 +1641,10 @@ impl<'t> Walker<'t> {
         }
         if let Some(sel) = rest {
             let only_type_args = sel.named_child_count() == 1
-                && sel.named_child(0).map(|t| t.kind() == "type_arguments").unwrap_or(false);
+                && sel
+                    .named_child(0)
+                    .map(|t| t.kind() == "type_arguments")
+                    .unwrap_or(false);
             if sel.kind() == "selector" && only_type_args {
                 rest = sel.next_named_sibling();
             }
@@ -1444,7 +1679,9 @@ impl<'t> Walker<'t> {
         let mut after = next;
         let mut up = parent;
         while after.is_none() {
-            let Some(u) = up.filter(|u| is_prefixed(u.kind())) else { break };
+            let Some(u) = up.filter(|u| is_prefixed(u.kind())) else {
+                break;
+            };
             after = u.next_named_sibling();
             up = if after.is_some() { None } else { u.parent() };
         }
@@ -1525,15 +1762,22 @@ impl<'t> Walker<'t> {
             return;
         }
         let mut cursor = node.walk();
-        if node.named_children(&mut cursor).any(|c| c.kind() == "argument_part") {
+        if node
+            .named_children(&mut cursor)
+            .any(|c| c.kind() == "argument_part")
+        {
             return;
         }
-        let Some(prev) = self.receiver_of(node) else { return };
+        let Some(prev) = self.receiver_of(node) else {
+            return;
+        };
         if prev.kind() == "identifier" && cap_ident_re().is_match(self.text(prev)) {
             // `Map` in `x.read<Map<K, V>>(y)` parsed as comparisons is a type
             // argument, which the body walker references as a type.
             if let Some(before) = prev.prev_named_sibling() {
-                if before.kind() == "relational_operator" && self.misparsed_generic_call(before).is_some() {
+                if before.kind() == "relational_operator"
+                    && self.misparsed_generic_call(before).is_some()
+                {
                     return;
                 }
             }
@@ -1579,7 +1823,9 @@ impl<'t> Walker<'t> {
             }
             if let Some(di) = decl_idx {
                 for j in (0..di).rev() {
-                    let Some(sib) = parent.named_child(j) else { continue };
+                    let Some(sib) = parent.named_child(j) else {
+                        continue;
+                    };
                     if DECORATOR_STEP_OVER.contains(&sib.kind()) {
                         continue;
                     }
@@ -1593,7 +1839,10 @@ impl<'t> Walker<'t> {
     }
 
     fn consider_decorator(&mut self, n: Node<'t>, decorated_row: u32) {
-        if !matches!(n.kind(), "decorator" | "annotation" | "marker_annotation" | "attribute") {
+        if !matches!(
+            n.kind(),
+            "decorator" | "annotation" | "marker_annotation" | "attribute"
+        ) {
             return;
         }
         let mut target: Option<Node<'t>> = None;
@@ -1601,7 +1850,9 @@ impl<'t> Walker<'t> {
         let kids: Vec<Node<'t>> = n.named_children(&mut cursor).collect();
         for child in kids {
             if child.kind() == "call_expression" {
-                let fnn = child.child_by_field_name("function").or_else(|| child.named_child(0));
+                let fnn = child
+                    .child_by_field_name("function")
+                    .or_else(|| child.named_child(0));
                 if let Some(f) = fnn {
                     target = Some(f);
                 }
@@ -1611,8 +1862,12 @@ impl<'t> Walker<'t> {
             }
             if matches!(
                 child.kind(),
-                "identifier" | "member_expression" | "scoped_identifier" | "navigation_expression"
-                    | "user_type" | "type_identifier"
+                "identifier"
+                    | "member_expression"
+                    | "scoped_identifier"
+                    | "navigation_expression"
+                    | "user_type"
+                    | "type_identifier"
             ) {
                 target = Some(child);
                 break;
@@ -1657,8 +1912,12 @@ impl<'t> Walker<'t> {
                 // `class A = B with M implements I;` — extends B, implements
                 // each mixin and interface, in source order.
                 let mut cc = child.walk();
-                let application = child.named_children(&mut cc).find(|c| c.kind() == "mixin_application");
-                let Some(application) = application else { continue };
+                let application = child
+                    .named_children(&mut cc)
+                    .find(|c| c.kind() == "mixin_application");
+                let Some(application) = application else {
+                    continue;
+                };
                 let mut ac = application.walk();
                 let parts: Vec<Node<'t>> = application.named_children(&mut ac).collect();
                 for t in parts {
@@ -1719,8 +1978,11 @@ impl<'t> Walker<'t> {
             let found = node.named_children(&mut cursor).find(|c| {
                 matches!(
                     c.kind(),
-                    "function_signature" | "getter_signature" | "setter_signature"
-                        | "constructor_signature" | "factory_constructor_signature"
+                    "function_signature"
+                        | "getter_signature"
+                        | "setter_signature"
+                        | "constructor_signature"
+                        | "factory_constructor_signature"
                 )
             });
             found.unwrap_or(node) // operators fall back to the wrapper itself
@@ -1772,7 +2034,11 @@ impl<'t> Walker<'t> {
         if !is_upper_camel(text) || is_builtin_type(text) {
             return false;
         }
-        if node.next_sibling().map(|s| s.kind() == ".").unwrap_or(false) {
+        if node
+            .next_sibling()
+            .map(|s| s.kind() == ".")
+            .unwrap_or(false)
+        {
             return false;
         }
         !node
@@ -1802,11 +2068,15 @@ impl<'t> Walker<'t> {
     /// declaring a field or a top-level variable, not the second variable of
     /// a local declaration (`for (var i = 0, j = n(); …)`).
     fn is_field_or_top_level_entry(&self, node: Node<'t>) -> bool {
-        let Some(list) = node.parent() else { return false };
+        let Some(list) = node.parent() else {
+            return false;
+        };
         if list.kind() != "initialized_identifier_list" {
             return false;
         }
-        let Some(owner) = list.parent() else { return false };
+        let Some(owner) = list.parent() else {
+            return false;
+        };
         if owner.kind() == "program" {
             return true;
         }
@@ -1826,7 +2096,10 @@ impl<'t> Walker<'t> {
         }
         let mut cursor = node.walk();
         let accessor = node.named_children(&mut cursor).find(|c| {
-            matches!(c.kind(), "unconditional_assignable_selector" | "conditional_assignable_selector")
+            matches!(
+                c.kind(),
+                "unconditional_assignable_selector" | "conditional_assignable_selector"
+            )
         });
         let member = accessor.and_then(|a| {
             let mut ac = a.walk();
@@ -1834,7 +2107,9 @@ impl<'t> Walker<'t> {
             found
         });
         let Some(member) = member else { return };
-        let Some(receiver) = prev_named(node) else { return };
+        let Some(receiver) = prev_named(node) else {
+            return;
+        };
         if receiver.kind() != "identifier" {
             return;
         }
@@ -1842,7 +2117,10 @@ impl<'t> Walker<'t> {
         if let Some(next) = next {
             if next.kind() == "selector" {
                 let mut nc = next.walk();
-                if next.named_children(&mut nc).any(|c| c.kind() == "argument_part") {
+                if next
+                    .named_children(&mut nc)
+                    .any(|c| c.kind() == "argument_part")
+                {
                     return;
                 }
             }
@@ -1883,7 +2161,9 @@ impl<'t> Walker<'t> {
         self.extract_member_read(node);
         let type_node = match kind {
             "type_identifier" => Some(node),
-            "relational_operator" => self.misparsed_generic_call(node).map(|(_, type_name)| type_name),
+            "relational_operator" => self
+                .misparsed_generic_call(node)
+                .map(|(_, type_name)| type_name),
             _ => None,
         };
         if let Some(type_node) = type_node.filter(|t| self.is_type_name_dart(*t)) {
@@ -1957,7 +2237,11 @@ impl<'t> Walker<'t> {
             "value" => {
                 let v = node.child_by_field_name(field).or_else(|| {
                     let count = node.named_child_count();
-                    if count > 0 { node.named_child(count - 1) } else { None }
+                    if count > 0 {
+                        node.named_child(count - 1)
+                    } else {
+                        None
+                    }
                 });
                 if let Some(v) = v {
                     values.push(v);
@@ -2025,8 +2309,11 @@ impl<'t> Walker<'t> {
         if depth > 0
             && matches!(
                 node.kind(),
-                "function_signature" | "arrow_function" | "function_expression"
-                    | "lambda_literal" | "lambda_expression"
+                "function_signature"
+                    | "arrow_function"
+                    | "function_expression"
+                    | "lambda_literal"
+                    | "lambda_expression"
             )
         {
             return;
@@ -2096,10 +2383,14 @@ impl<'t> Walker<'t> {
             dvisited += 1;
             if matches!(
                 n.kind(),
-                "static_final_declaration" | "initialized_identifier" | "initialized_variable_definition"
+                "static_final_declaration"
+                    | "initialized_identifier"
+                    | "initialized_variable_definition"
             ) {
                 let mut cursor = n.walk();
-                let id = n.named_children(&mut cursor).find(|c| c.kind() == "identifier");
+                let id = n
+                    .named_children(&mut cursor)
+                    .find(|c| c.kind() == "identifier");
                 if let Some(id) = id {
                     let nm = self.text(id);
                     if targets.contains_key(nm) {
@@ -2143,7 +2434,10 @@ impl<'t> Walker<'t> {
                     break;
                 }
                 visited += 1;
-                if matches!(n.kind(), "identifier" | "constant" | "name" | "simple_identifier") {
+                if matches!(
+                    n.kind(),
+                    "identifier" | "constant" | "name" | "simple_identifier"
+                ) {
                     let ref_name = self.text(n);
                     if let Some(&target_row) = targets.get(ref_name) {
                         let target_id = self.node_ids[target_row as usize].as_str();

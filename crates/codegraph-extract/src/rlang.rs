@@ -47,7 +47,10 @@ fn is_assign_right(op: &str) -> bool {
 
 /// IMPORT_FNS (r.ts:39) — `source` is checked alongside (r.ts:189).
 fn is_import_fn(name: &str) -> bool {
-    matches!(name, "library" | "require" | "requireNamespace" | "loadNamespace")
+    matches!(
+        name,
+        "library" | "require" | "requireNamespace" | "loadNamespace"
+    )
 }
 /// CLASS_FNS (r.ts:40).
 fn is_class_fn(name: &str) -> bool {
@@ -125,7 +128,11 @@ pub fn extract(file_path: &str, source: &str) -> Result<EmitOut, String> {
         return_type: NONE_STR,
         extra_json: NONE_STR,
     });
-    w.stack.push(Scope { row: 0, kind: "file", name: base_name.to_string() });
+    w.stack.push(Scope {
+        row: 0,
+        kind: "file",
+        name: base_name.to_string(),
+    });
 
     // extractFilePackage returns null (no packageTypes); both end-of-file
     // flushes are no-ops for R (no fnRefSpec, VALUE_REF_LANGS gate).
@@ -151,10 +158,20 @@ impl<'t> Walker<'t> {
         node.start_position().row as u32 + 1
     }
     fn col_of(&self, node: Node) -> u32 {
-        util::col16(self.src, &self.line_starts, node.start_position().row, node.start_byte())
+        util::col16(
+            self.src,
+            &self.line_starts,
+            node.start_position().row,
+            node.start_byte(),
+        )
     }
     fn end_col_of(&self, node: Node) -> u32 {
-        util::col16(self.src, &self.line_starts, node.end_position().row, node.end_byte())
+        util::col16(
+            self.src,
+            &self.line_starts,
+            node.end_position().row,
+            node.end_byte(),
+        )
     }
     fn top_row(&self) -> u32 {
         self.stack.last().map(|s| s.row).unwrap_or(0)
@@ -178,13 +195,21 @@ impl<'t> Walker<'t> {
     // isStatic/isAsync/isExported, returnType, decorators — ever. The endLine
     // body-extension is dead (no resolveBody hook).
 
-    fn create_node(&mut self, kind: &'static str, name: &str, node: Node<'t>, signature: Option<&str>) -> Option<u32> {
+    fn create_node(
+        &mut self,
+        kind: &'static str,
+        name: &str,
+        node: Node<'t>,
+        signature: Option<&str>,
+    ) -> Option<u32> {
         if name.is_empty() {
             return None;
         }
         let start_line = self.line_of(node);
         let column = self.col_of(node);
-        let id = self.node_id_allocator.generate(self.file_path, kind, name, start_line, column);
+        let id = self
+            .node_id_allocator
+            .generate(self.file_path, kind, name, start_line, column);
 
         // buildQualifiedName (tree-sitter.ts:1447-1460): non-file stack names
         // joined `::` (namespacePrefix is always empty for R).
@@ -364,7 +389,11 @@ impl<'t> Walker<'t> {
                 _ => return false,
             };
             if let Some(cls_row) = self.create_node("class", &name, node, None) {
-                self.stack.push(Scope { row: cls_row, kind: "class", name });
+                self.stack.push(Scope {
+                    row: cls_row,
+                    kind: "class",
+                    name,
+                });
                 self.extract_class_members(node, cls_row);
                 self.stack.pop();
             }
@@ -401,7 +430,11 @@ impl<'t> Walker<'t> {
             let fn_row = self.create_node("function", &name, node, params_text);
             let body = impl_node.and_then(|i| i.child_by_field_name("body"));
             if let (Some(row), Some(body)) = (fn_row, body) {
-                self.stack.push(Scope { row, kind: "function", name });
+                self.stack.push(Scope {
+                    row,
+                    kind: "function",
+                    name,
+                });
                 self.visit(body);
                 self.stack.pop();
             }
@@ -430,7 +463,11 @@ impl<'t> Walker<'t> {
                     let fn_row = self.create_node("function", &name, node, params_text);
                     let body = rhs.child_by_field_name("body");
                     if let (Some(row), Some(body)) = (fn_row, body) {
-                        self.stack.push(Scope { row, kind: "function", name });
+                        self.stack.push(Scope {
+                            row,
+                            kind: "function",
+                            name,
+                        });
                         self.visit(body);
                         self.stack.pop();
                     }
@@ -439,7 +476,10 @@ impl<'t> Walker<'t> {
             }
         }
 
-        let top_level = node.parent().map(|p| p.kind() == "program").unwrap_or(false);
+        let top_level = node
+            .parent()
+            .map(|p| p.kind() == "program")
+            .unwrap_or(false);
 
         // Top-level value assignments → variable/constant (r.ts:284-296);
         // the class-definition idiom suppresses the twin variable node but the
@@ -447,13 +487,21 @@ impl<'t> Walker<'t> {
         if top_level && is_assign_left(op) {
             if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
                 if lhs.kind() == "identifier" {
-                    let rhs_callee = if rhs.kind() == "call" { self.callee_name(rhs) } else { None };
+                    let rhs_callee = if rhs.kind() == "call" {
+                        self.callee_name(rhs)
+                    } else {
+                        None
+                    };
                     let suppressed = rhs_callee
                         .map(|c| is_class_fn(c) || is_generic_fn(c))
                         .unwrap_or(false);
                     if !suppressed {
                         let name = self.text(lhs);
-                        let kind = if constant_name_re().is_match(name) { "constant" } else { "variable" };
+                        let kind = if constant_name_re().is_match(name) {
+                            "constant"
+                        } else {
+                            "variable"
+                        };
                         self.create_node(kind, name, node, None);
                     }
                     self.visit(rhs);
@@ -467,7 +515,11 @@ impl<'t> Walker<'t> {
             if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
                 if rhs.kind() == "identifier" {
                     let name = self.text(rhs);
-                    let kind = if constant_name_re().is_match(name) { "constant" } else { "variable" };
+                    let kind = if constant_name_re().is_match(name) {
+                        "constant"
+                    } else {
+                        "variable"
+                    };
                     self.create_node(kind, name, node, None);
                     self.visit(lhs);
                     return true;
@@ -561,12 +613,18 @@ impl<'t> Walker<'t> {
             Some(v) if v.kind() == "function_definition" => v,
             _ => return,
         };
-        let params_text = entry_value.child_by_field_name("parameters").map(|p| self.text(p));
+        let params_text = entry_value
+            .child_by_field_name("parameters")
+            .map(|p| self.text(p));
         let name = self.text(entry_name).to_string();
         let method_row = self.create_node("method", &name, entry, params_text);
         let body = entry_value.child_by_field_name("body");
         if let (Some(row), Some(body)) = (method_row, body) {
-            self.stack.push(Scope { row, kind: "method", name });
+            self.stack.push(Scope {
+                row,
+                kind: "method",
+                name,
+            });
             self.visit(body);
             self.stack.pop();
         }

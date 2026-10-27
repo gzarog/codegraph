@@ -2,11 +2,12 @@
 //! references awaiting resolution, full-text search and graph statistics.
 
 use codegraph_core::search::{
-    bounded_edit_distance, kind_bonus, name_match_bonus, parse_query, score_path_relevance, split_identifier_segments,
+    bounded_edit_distance, kind_bonus, name_match_bonus, parse_query, score_path_relevance,
+    split_identifier_segments,
 };
 use codegraph_core::{
-    Edge, EdgeKind, ExtractionError, ExtractionResult, FileRecord, GraphStats, Language, Node, NodeKind, Provenance,
-    ReferenceKind, SearchOptions, SearchResult, UnresolvedReference,
+    Edge, EdgeKind, ExtractionError, ExtractionResult, FileRecord, GraphStats, Language, Node,
+    NodeKind, Provenance, ReferenceKind, SearchOptions, SearchResult, UnresolvedReference,
 };
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row, ToSql, Transaction};
 use std::collections::{HashMap, HashSet};
@@ -65,7 +66,8 @@ fn json_list(v: &[String]) -> Option<String> {
 }
 
 fn parse_list(s: Option<String>) -> Vec<String> {
-    s.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+    s.and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
 }
 
 fn row_to_node(row: &Row<'_>) -> rusqlite::Result<Node> {
@@ -114,7 +116,8 @@ fn row_to_edge(row: &Row<'_>) -> rusqlite::Result<Edge> {
     })
 }
 
-const REF_COLUMNS: &str = "id, from_node_id, reference_name, reference_kind, line, col, candidates, file_path, language";
+const REF_COLUMNS: &str =
+    "id, from_node_id, reference_name, reference_kind, line, col, candidates, file_path, language";
 
 fn row_to_ref(row: &Row<'_>) -> rusqlite::Result<UnresolvedReference> {
     let kind: String = row.get(3)?;
@@ -132,7 +135,8 @@ fn row_to_ref(row: &Row<'_>) -> rusqlite::Result<UnresolvedReference> {
     })
 }
 
-const FILE_COLUMNS: &str = "path, content_hash, language, size, modified_at, indexed_at, node_count, errors, generated";
+const FILE_COLUMNS: &str =
+    "path, content_hash, language, size, modified_at, indexed_at, node_count, errors, generated";
 
 fn row_to_file(row: &Row<'_>) -> rusqlite::Result<FileRecord> {
     let language: String = row.get(2)?;
@@ -145,7 +149,9 @@ fn row_to_file(row: &Row<'_>) -> rusqlite::Result<FileRecord> {
         modified_at: row.get(4)?,
         indexed_at: row.get(5)?,
         node_count: row.get(6)?,
-        errors: errors.and_then(|e| serde_json::from_str::<Vec<ExtractionError>>(&e).ok()).unwrap_or_default(),
+        errors: errors
+            .and_then(|e| serde_json::from_str::<Vec<ExtractionError>>(&e).ok())
+            .unwrap_or_default(),
         generated: row.get::<_, i64>(8)? != 0,
     })
 }
@@ -190,12 +196,19 @@ impl Store {
              PRAGMA cache_size = -64000;",
         )?;
         conn.execute_batch(SCHEMA)?;
-        let store = Store { conn, path, project_name_tokens: HashSet::new() };
+        let store = Store {
+            conn,
+            path,
+            project_name_tokens: HashSet::new(),
+        };
         match store.metadata("schema_version")? {
             Some(v) => {
                 let found: i64 = v.parse().unwrap_or(0);
                 if found > SCHEMA_VERSION {
-                    return Err(StoreError::SchemaTooNew { found, supported: SCHEMA_VERSION });
+                    return Err(StoreError::SchemaTooNew {
+                        found,
+                        supported: SCHEMA_VERSION,
+                    });
                 }
             }
             None => store.set_metadata("schema_version", &SCHEMA_VERSION.to_string())?,
@@ -229,7 +242,11 @@ impl Store {
     pub fn metadata(&self, key: &str) -> Result<Option<String>> {
         Ok(self
             .conn
-            .query_row("SELECT value FROM project_metadata WHERE key = ?", [key], |r| r.get(0))
+            .query_row(
+                "SELECT value FROM project_metadata WHERE key = ?",
+                [key],
+                |r| r.get(0),
+            )
             .optional()?)
     }
 
@@ -305,7 +322,13 @@ impl Store {
     pub fn delete_nodes(&mut self, ids: &[String]) -> Result<()> {
         self.transaction(|tx| {
             for chunk in ids.chunks(IN_CHUNK) {
-                tx.execute(&format!("DELETE FROM nodes WHERE id IN ({})", placeholders(chunk.len())), params_from_iter(chunk))?;
+                tx.execute(
+                    &format!(
+                        "DELETE FROM nodes WHERE id IN ({})",
+                        placeholders(chunk.len())
+                    ),
+                    params_from_iter(chunk),
+                )?;
             }
             Ok(())
         })
@@ -323,7 +346,11 @@ impl Store {
     // -------------------------------------------------------------- references
 
     /// Pending references in row-id order, `limit` at a time after `after_id`.
-    pub fn pending_refs_after(&self, after_id: i64, limit: usize) -> Result<Vec<UnresolvedReference>> {
+    pub fn pending_refs_after(
+        &self,
+        after_id: i64,
+        limit: usize,
+    ) -> Result<Vec<UnresolvedReference>> {
         let mut stmt = self.conn.prepare_cached(&format!(
             "SELECT {REF_COLUMNS} FROM refs WHERE status = 'pending' AND id > ? ORDER BY id LIMIT ?"
         ))?;
@@ -332,13 +359,18 @@ impl Store {
     }
 
     pub fn count_refs(&self, status: RefStatus) -> Result<u64> {
-        Ok(self.conn.query_row("SELECT COUNT(*) FROM refs WHERE status = ?", [status.as_str()], |r| r.get::<_, i64>(0))?
-            as u64)
+        Ok(self.conn.query_row(
+            "SELECT COUNT(*) FROM refs WHERE status = ?",
+            [status.as_str()],
+            |r| r.get::<_, i64>(0),
+        )? as u64)
     }
 
     /// References (any status) from nodes in `file_path`.
     pub fn refs_in_file(&self, file_path: &str) -> Result<Vec<UnresolvedReference>> {
-        let mut stmt = self.conn.prepare_cached(&format!("SELECT {REF_COLUMNS} FROM refs WHERE file_path = ? ORDER BY id"))?;
+        let mut stmt = self.conn.prepare_cached(&format!(
+            "SELECT {REF_COLUMNS} FROM refs WHERE file_path = ? ORDER BY id"
+        ))?;
         let rows = stmt.query_map([file_path], row_to_ref)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
@@ -354,7 +386,11 @@ impl Store {
 
     /// Record resolution outcomes: each resolved ref gets its edge; the rest
     /// are marked failed.
-    pub fn apply_resolutions(&mut self, resolved: &[(i64, Edge, String)], failed: &[i64]) -> Result<()> {
+    pub fn apply_resolutions(
+        &mut self,
+        resolved: &[(i64, Edge, String)],
+        failed: &[i64],
+    ) -> Result<()> {
         self.transaction(|tx| {
             {
                 let mut mark = tx.prepare_cached(
@@ -395,22 +431,28 @@ impl Store {
 
     /// Reopen every failed reference.
     pub fn reopen_all_failed_refs(&self) -> Result<usize> {
-        Ok(self.conn.execute("UPDATE refs SET status = 'pending' WHERE status = 'failed'", [])?)
+        Ok(self.conn.execute(
+            "UPDATE refs SET status = 'pending' WHERE status = 'failed'",
+            [],
+        )?)
     }
 
     // ------------------------------------------------------------------- nodes
 
     pub fn node(&self, id: &str) -> Result<Option<Node>> {
-        let mut stmt = self.conn.prepare_cached(&format!("SELECT {NODE_COLUMNS} FROM nodes WHERE id = ?"))?;
+        let mut stmt = self
+            .conn
+            .prepare_cached(&format!("SELECT {NODE_COLUMNS} FROM nodes WHERE id = ?"))?;
         Ok(stmt.query_row([id], row_to_node).optional()?)
     }
 
     pub fn nodes_by_ids(&self, ids: &[String]) -> Result<HashMap<String, Node>> {
         let mut out = HashMap::with_capacity(ids.len());
         for chunk in ids.chunks(IN_CHUNK) {
-            let mut stmt = self
-                .conn
-                .prepare(&format!("SELECT {NODE_COLUMNS} FROM nodes WHERE id IN ({})", placeholders(chunk.len())))?;
+            let mut stmt = self.conn.prepare(&format!(
+                "SELECT {NODE_COLUMNS} FROM nodes WHERE id IN ({})",
+                placeholders(chunk.len())
+            ))?;
             for n in stmt.query_map(params_from_iter(chunk), row_to_node)? {
                 let n = n?;
                 out.insert(n.id.clone(), n);
@@ -420,13 +462,18 @@ impl Store {
     }
 
     fn query_nodes(&self, sql_where: &str, params: &[&dyn ToSql]) -> Result<Vec<Node>> {
-        let mut stmt = self.conn.prepare_cached(&format!("SELECT {NODE_COLUMNS} FROM nodes WHERE {sql_where}"))?;
+        let mut stmt = self.conn.prepare_cached(&format!(
+            "SELECT {NODE_COLUMNS} FROM nodes WHERE {sql_where}"
+        ))?;
         let rows = stmt.query_map(params, row_to_node)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     pub fn nodes_in_file(&self, file_path: &str) -> Result<Vec<Node>> {
-        self.query_nodes("file_path = ? ORDER BY start_line, start_column", &[&file_path])
+        self.query_nodes(
+            "file_path = ? ORDER BY start_line, start_column",
+            &[&file_path],
+        )
     }
 
     pub fn nodes_named(&self, name: &str) -> Result<Vec<Node>> {
@@ -456,7 +503,10 @@ impl Store {
     }
 
     pub fn file_node(&self, file_path: &str) -> Result<Option<Node>> {
-        Ok(self.query_nodes("file_path = ? AND kind = 'file' LIMIT 1", &[&file_path])?.into_iter().next())
+        Ok(self
+            .query_nodes("file_path = ? AND kind = 'file' LIMIT 1", &[&file_path])?
+            .into_iter()
+            .next())
     }
 
     /// The innermost node in `file_path` whose span covers `line`.
@@ -476,15 +526,25 @@ impl Store {
     }
 
     pub fn node_count(&self) -> Result<u64> {
-        Ok(self.conn.query_row("SELECT COUNT(*) FROM nodes", [], |r| r.get::<_, i64>(0))? as u64)
+        Ok(self
+            .conn
+            .query_row("SELECT COUNT(*) FROM nodes", [], |r| r.get::<_, i64>(0))? as u64)
     }
 
     // ------------------------------------------------------------------- edges
 
-    fn query_edges(&self, sql_where: &str, ids: &[String], kinds: &[EdgeKind]) -> Result<Vec<Edge>> {
+    fn query_edges(
+        &self,
+        sql_where: &str,
+        ids: &[String],
+        kinds: &[EdgeKind],
+    ) -> Result<Vec<Edge>> {
         let mut out = Vec::new();
         for chunk in ids.chunks(IN_CHUNK) {
-            let mut sql = format!("SELECT {EDGE_COLUMNS} FROM edges WHERE {sql_where} IN ({})", placeholders(chunk.len()));
+            let mut sql = format!(
+                "SELECT {EDGE_COLUMNS} FROM edges WHERE {sql_where} IN ({})",
+                placeholders(chunk.len())
+            );
             let mut args: Vec<String> = chunk.to_vec();
             if !kinds.is_empty() {
                 sql.push_str(&format!(" AND kind IN ({})", placeholders(kinds.len())));
@@ -518,24 +578,39 @@ impl Store {
     /// Edges whose both endpoints are in `ids`.
     pub fn edges_among(&self, ids: &[String], kinds: &[EdgeKind]) -> Result<Vec<Edge>> {
         let set: HashSet<&String> = ids.iter().collect();
-        Ok(self.outgoing_edges_from(ids, kinds)?.into_iter().filter(|e| set.contains(&e.target)).collect())
+        Ok(self
+            .outgoing_edges_from(ids, kinds)?
+            .into_iter()
+            .filter(|e| set.contains(&e.target))
+            .collect())
     }
 
     pub fn edges_of_kind(&self, kind: EdgeKind) -> Result<Vec<Edge>> {
-        let mut stmt = self.conn.prepare_cached(&format!("SELECT {EDGE_COLUMNS} FROM edges WHERE kind = ? ORDER BY id"))?;
+        let mut stmt = self.conn.prepare_cached(&format!(
+            "SELECT {EDGE_COLUMNS} FROM edges WHERE kind = ? ORDER BY id"
+        ))?;
         let rows = stmt.query_map([kind.as_str()], row_to_edge)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     pub fn edge_count(&self) -> Result<u64> {
-        Ok(self.conn.query_row("SELECT COUNT(*) FROM edges", [], |r| r.get::<_, i64>(0))? as u64)
+        Ok(self
+            .conn
+            .query_row("SELECT COUNT(*) FROM edges", [], |r| r.get::<_, i64>(0))? as u64)
     }
 
     /// Incoming-edge counts per node, for ranking by how depended-on a symbol is.
-    pub fn incoming_counts(&self, ids: &[String], kinds: &[EdgeKind]) -> Result<HashMap<String, u64>> {
+    pub fn incoming_counts(
+        &self,
+        ids: &[String],
+        kinds: &[EdgeKind],
+    ) -> Result<HashMap<String, u64>> {
         let mut out = HashMap::new();
         for chunk in ids.chunks(IN_CHUNK) {
-            let mut sql = format!("SELECT target, COUNT(*) FROM edges WHERE target IN ({})", placeholders(chunk.len()));
+            let mut sql = format!(
+                "SELECT target, COUNT(*) FROM edges WHERE target IN ({})",
+                placeholders(chunk.len())
+            );
             let mut args: Vec<String> = chunk.to_vec();
             if !kinds.is_empty() {
                 sql.push_str(&format!(" AND kind IN ({})", placeholders(kinds.len())));
@@ -543,7 +618,9 @@ impl Store {
             }
             sql.push_str(" GROUP BY target");
             let mut stmt = self.conn.prepare(&sql)?;
-            for r in stmt.query_map(params_from_iter(args), |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
+            for r in stmt.query_map(params_from_iter(args), |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            })? {
                 let (id, n) = r?;
                 out.insert(id, n as u64);
             }
@@ -587,7 +664,9 @@ impl Store {
         if !kinds.is_empty() {
             sql.push_str(&format!(" AND n.kind IN ({})", placeholders(kinds.len())));
         }
-        sql.push_str(&format!(" ORDER BY n.file_path, n.start_line LIMIT {limit}"));
+        sql.push_str(&format!(
+            " ORDER BY n.file_path, n.start_line LIMIT {limit}"
+        ));
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(params_from_iter(kinds), row_to_node)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -596,37 +675,49 @@ impl Store {
     // ------------------------------------------------------------------- files
 
     pub fn file(&self, path: &str) -> Result<Option<FileRecord>> {
-        let mut stmt = self.conn.prepare_cached(&format!("SELECT {FILE_COLUMNS} FROM files WHERE path = ?"))?;
+        let mut stmt = self
+            .conn
+            .prepare_cached(&format!("SELECT {FILE_COLUMNS} FROM files WHERE path = ?"))?;
         Ok(stmt.query_row([path], row_to_file).optional()?)
     }
 
     pub fn all_files(&self) -> Result<Vec<FileRecord>> {
-        let mut stmt = self.conn.prepare_cached(&format!("SELECT {FILE_COLUMNS} FROM files ORDER BY path"))?;
+        let mut stmt = self
+            .conn
+            .prepare_cached(&format!("SELECT {FILE_COLUMNS} FROM files ORDER BY path"))?;
         let rows = stmt.query_map([], row_to_file)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// path → content hash for every tracked file.
     pub fn file_hashes(&self) -> Result<HashMap<String, String>> {
-        let mut stmt = self.conn.prepare_cached("SELECT path, content_hash FROM files")?;
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT path, content_hash FROM files")?;
         let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     pub fn file_count(&self) -> Result<u64> {
-        Ok(self.conn.query_row("SELECT COUNT(*) FROM files", [], |r| r.get::<_, i64>(0))? as u64)
+        Ok(self
+            .conn
+            .query_row("SELECT COUNT(*) FROM files", [], |r| r.get::<_, i64>(0))? as u64)
     }
 
     /// Tracked paths under `dir` (project-relative, no trailing slash).
     pub fn files_under(&self, dir: &str) -> Result<Vec<String>> {
         let prefix = format!("{}/%", escape_like(dir.trim_end_matches('/')));
-        let mut stmt = self.conn.prepare_cached("SELECT path FROM files WHERE path LIKE ? ESCAPE '\\' ORDER BY path")?;
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT path FROM files WHERE path LIKE ? ESCAPE '\\' ORDER BY path")?;
         let rows = stmt.query_map([prefix], |r| r.get(0))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     pub fn last_indexed_at(&self) -> Result<Option<i64>> {
-        Ok(self.conn.query_row("SELECT MAX(indexed_at) FROM files", [], |r| r.get(0))?)
+        Ok(self
+            .conn
+            .query_row("SELECT MAX(indexed_at) FROM files", [], |r| r.get(0))?)
     }
 
     // ------------------------------------------------------------------ search
@@ -658,7 +749,13 @@ impl Store {
             let mut seen: HashSet<String> = results.iter().map(|r| r.node.id.clone()).collect();
             let top = results.iter().map(|r| r.score).fold(f64::MIN, f64::max);
             for term in text.split_whitespace().filter(|t| t.len() >= 2) {
-                for node in self.filtered_nodes("lower(name) = lower(?)", &[term.to_string()], &kinds, &languages, 20)? {
+                for node in self.filtered_nodes(
+                    "lower(name) = lower(?)",
+                    &[term.to_string()],
+                    &kinds,
+                    &languages,
+                    20,
+                )? {
                     if seen.insert(node.id.clone()) {
                         results.push(SearchResult { node, score: top });
                     }
@@ -669,20 +766,38 @@ impl Store {
         if !results.is_empty() && !text.is_empty() {
             for r in &mut results {
                 r.score += kind_bonus(r.node.kind)
-                    + score_path_relevance(&r.node.file_path, text, &self.project_name_tokens, false)
+                    + score_path_relevance(
+                        &r.node.file_path,
+                        text,
+                        &self.project_name_tokens,
+                        false,
+                    )
                     + name_match_bonus(&r.node.name, text);
             }
-            results.sort_by(|a, b| b.score.total_cmp(&a.score).then_with(|| a.node.id.cmp(&b.node.id)));
+            results.sort_by(|a, b| {
+                b.score
+                    .total_cmp(&a.score)
+                    .then_with(|| a.node.id.cmp(&b.node.id))
+            });
         }
 
-        let path_filters: Vec<String> = parsed.path_filters.iter().chain(&opts.include_patterns).map(|p| p.to_lowercase()).collect();
+        let path_filters: Vec<String> = parsed
+            .path_filters
+            .iter()
+            .chain(&opts.include_patterns)
+            .map(|p| p.to_lowercase())
+            .collect();
         if !path_filters.is_empty() {
             results.retain(|r| {
                 let fp = r.node.file_path.to_lowercase();
                 path_filters.iter().any(|p| fp.contains(p.as_str()))
             });
         }
-        let excludes: Vec<String> = opts.exclude_patterns.iter().map(|p| p.to_lowercase()).collect();
+        let excludes: Vec<String> = opts
+            .exclude_patterns
+            .iter()
+            .map(|p| p.to_lowercase())
+            .collect();
         if !excludes.is_empty() {
             results.retain(|r| {
                 let fp = r.node.file_path.to_lowercase();
@@ -690,7 +805,11 @@ impl Store {
             });
         }
         if !parsed.name_filters.is_empty() {
-            let names: Vec<String> = parsed.name_filters.iter().map(|n| n.to_lowercase()).collect();
+            let names: Vec<String> = parsed
+                .name_filters
+                .iter()
+                .map(|n| n.to_lowercase())
+                .collect();
             results.retain(|r| {
                 let n = r.node.name.to_lowercase();
                 names.iter().any(|f| n.contains(f.as_str()))
@@ -715,7 +834,10 @@ impl Store {
             params.extend(kinds.iter().map(|k| k.as_str().to_string()));
         }
         if !languages.is_empty() {
-            sql.push_str(&format!(" AND language IN ({})", placeholders(languages.len())));
+            sql.push_str(&format!(
+                " AND language IN ({})",
+                placeholders(languages.len())
+            ));
             params.extend(languages.iter().map(|l| l.as_str().to_string()));
         }
         sql.push_str(&format!(" LIMIT {limit}"));
@@ -724,7 +846,12 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    fn search_by_filters(&self, kinds: &[NodeKind], languages: &[Language], limit: usize) -> Result<Vec<SearchResult>> {
+    fn search_by_filters(
+        &self,
+        kinds: &[NodeKind],
+        languages: &[Language],
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
         Ok(self
             .filtered_nodes("1 = 1", &[], kinds, languages, limit)?
             .into_iter()
@@ -732,14 +859,25 @@ impl Store {
             .collect())
     }
 
-    fn search_fts(&self, text: &str, kinds: &[NodeKind], languages: &[Language], limit: usize) -> Result<Vec<SearchResult>> {
+    fn search_fts(
+        &self,
+        text: &str,
+        kinds: &[NodeKind],
+        languages: &[Language],
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
         let terms: Vec<String> = text
             .replace("::", " ")
             .chars()
             .filter(|c| !matches!(c, '\'' | '"' | '*' | '(' | ')' | ':' | '^'))
             .collect::<String>()
             .split_whitespace()
-            .filter(|t| !matches!(t.to_ascii_uppercase().as_str(), "AND" | "OR" | "NOT" | "NEAR"))
+            .filter(|t| {
+                !matches!(
+                    t.to_ascii_uppercase().as_str(),
+                    "AND" | "OR" | "NOT" | "NEAR"
+                )
+            })
             .map(|t| format!("\"{t}\"*"))
             .collect();
         if terms.is_empty() {
@@ -750,7 +888,11 @@ impl Store {
             "SELECT {cols}, -bm25(nodes_fts, 0.0, 10.0, 5.0, 1.0, 2.0) AS score
                FROM nodes_fts JOIN nodes n ON n.rowid = nodes_fts.rowid
               WHERE nodes_fts MATCH ?",
-            cols = NODE_COLUMNS.split(", ").map(|c| format!("n.{c}")).collect::<Vec<_>>().join(", ")
+            cols = NODE_COLUMNS
+                .split(", ")
+                .map(|c| format!("n.{c}"))
+                .collect::<Vec<_>>()
+                .join(", ")
         );
         let mut params: Vec<String> = vec![fts];
         if !kinds.is_empty() {
@@ -758,16 +900,33 @@ impl Store {
             params.extend(kinds.iter().map(|k| k.as_str().to_string()));
         }
         if !languages.is_empty() {
-            sql.push_str(&format!(" AND n.language IN ({})", placeholders(languages.len())));
+            sql.push_str(&format!(
+                " AND n.language IN ({})",
+                placeholders(languages.len())
+            ));
             params.extend(languages.iter().map(|l| l.as_str().to_string()));
         }
-        sql.push_str(&format!(" ORDER BY score DESC LIMIT {}", (limit * 5).max(100)));
+        sql.push_str(&format!(
+            " ORDER BY score DESC LIMIT {}",
+            (limit * 5).max(100)
+        ));
         let mut stmt = self.conn.prepare_cached(&sql)?;
-        let rows = stmt.query_map(params_from_iter(params), |r| Ok(SearchResult { node: row_to_node(r)?, score: r.get(21)? }))?;
+        let rows = stmt.query_map(params_from_iter(params), |r| {
+            Ok(SearchResult {
+                node: row_to_node(r)?,
+                score: r.get(21)?,
+            })
+        })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    fn search_like(&self, text: &str, kinds: &[NodeKind], languages: &[Language], limit: usize) -> Result<Vec<SearchResult>> {
+    fn search_like(
+        &self,
+        text: &str,
+        kinds: &[NodeKind],
+        languages: &[Language],
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
         let esc = escape_like(text);
         let contains = format!("%{esc}%");
         let mut sql = format!(
@@ -784,16 +943,30 @@ impl Store {
             params.extend(kinds.iter().map(|k| k.as_str().to_string()));
         }
         if !languages.is_empty() {
-            sql.push_str(&format!(" AND language IN ({})", placeholders(languages.len())));
+            sql.push_str(&format!(
+                " AND language IN ({})",
+                placeholders(languages.len())
+            ));
             params.extend(languages.iter().map(|l| l.as_str().to_string()));
         }
         sql.push_str(&format!(" ORDER BY score DESC, length(name) LIMIT {limit}"));
         let mut stmt = self.conn.prepare_cached(&sql)?;
-        let rows = stmt.query_map(params_from_iter(params), |r| Ok(SearchResult { node: row_to_node(r)?, score: r.get(21)? }))?;
+        let rows = stmt.query_map(params_from_iter(params), |r| {
+            Ok(SearchResult {
+                node: row_to_node(r)?,
+                score: r.get(21)?,
+            })
+        })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    fn search_fuzzy(&self, text: &str, kinds: &[NodeKind], languages: &[Language], limit: usize) -> Result<Vec<SearchResult>> {
+    fn search_fuzzy(
+        &self,
+        text: &str,
+        kinds: &[NodeKind],
+        languages: &[Language],
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
         let lowered = text.to_lowercase();
         let max = if lowered.chars().count() <= 4 { 1 } else { 2 };
         let mut candidates: Vec<(usize, String)> = Vec::new();
@@ -810,7 +983,10 @@ impl Store {
         for (d, name) in candidates {
             for node in self.filtered_nodes("name = ?", &[name], kinds, languages, 5)? {
                 if seen.insert(node.id.clone()) {
-                    out.push(SearchResult { node, score: 1.0 / (1.0 + d as f64) });
+                    out.push(SearchResult {
+                        node,
+                        score: 1.0 / (1.0 + d as f64),
+                    });
                 }
             }
             if out.len() >= limit {
@@ -822,7 +998,9 @@ impl Store {
 
     /// Every distinct symbol name (excluding file nodes).
     pub fn distinct_names(&self) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare_cached("SELECT DISTINCT name FROM nodes WHERE kind != 'file'")?;
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT DISTINCT name FROM nodes WHERE kind != 'file'")?;
         let rows = stmt.query_map([], |r| r.get(0))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
@@ -831,9 +1009,10 @@ impl Store {
     pub fn existing_names(&self, names: &[String]) -> Result<HashSet<String>> {
         let mut out = HashSet::new();
         for chunk in names.chunks(IN_CHUNK) {
-            let mut stmt = self
-                .conn
-                .prepare(&format!("SELECT DISTINCT name FROM nodes WHERE name IN ({})", placeholders(chunk.len())))?;
+            let mut stmt = self.conn.prepare(&format!(
+                "SELECT DISTINCT name FROM nodes WHERE name IN ({})",
+                placeholders(chunk.len())
+            ))?;
             for n in stmt.query_map(params_from_iter(chunk), |r| r.get::<_, String>(0))? {
                 out.insert(n?);
             }
@@ -848,7 +1027,9 @@ impl Store {
         let names = self.distinct_names()?;
         self.transaction(|tx| {
             tx.execute("DELETE FROM name_segments", [])?;
-            let mut ins = tx.prepare_cached("INSERT OR IGNORE INTO name_segments (segment, name) VALUES (?, ?)")?;
+            let mut ins = tx.prepare_cached(
+                "INSERT OR IGNORE INTO name_segments (segment, name) VALUES (?, ?)",
+            )?;
             for name in &names {
                 for seg in split_identifier_segments(name) {
                     ins.execute(params![seg, name])?;
@@ -860,7 +1041,9 @@ impl Store {
 
     /// Symbol names containing the word `segment`.
     pub fn names_for_segment(&self, segment: &str, limit: usize) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare_cached("SELECT name FROM name_segments WHERE segment = ? LIMIT ?")?;
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT name FROM name_segments WHERE segment = ? LIMIT ?")?;
         let rows = stmt.query_map(params![segment, limit as i64], |r| r.get(0))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
@@ -870,21 +1053,31 @@ impl Store {
     pub fn stats(&self) -> Result<GraphStats> {
         let grouped = |sql: &str| -> Result<Vec<(String, u64)>> {
             let mut stmt = self.conn.prepare(sql)?;
-            let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64)))?;
+            let rows = stmt.query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64))
+            })?;
             Ok(rows.collect::<rusqlite::Result<_>>()?)
         };
         let size = |suffix: &str| -> u64 {
             let mut p = self.path.as_os_str().to_owned();
             p.push(suffix);
-            std::fs::metadata(PathBuf::from(p)).map(|m| m.len()).unwrap_or(0)
+            std::fs::metadata(PathBuf::from(p))
+                .map(|m| m.len())
+                .unwrap_or(0)
         };
         Ok(GraphStats {
             node_count: self.node_count()?,
             edge_count: self.edge_count()?,
             file_count: self.file_count()?,
-            nodes_by_kind: grouped("SELECT kind, COUNT(*) FROM nodes GROUP BY kind ORDER BY COUNT(*) DESC")?,
-            edges_by_kind: grouped("SELECT kind, COUNT(*) FROM edges GROUP BY kind ORDER BY COUNT(*) DESC")?,
-            files_by_language: grouped("SELECT language, COUNT(*) FROM files GROUP BY language ORDER BY COUNT(*) DESC")?,
+            nodes_by_kind: grouped(
+                "SELECT kind, COUNT(*) FROM nodes GROUP BY kind ORDER BY COUNT(*) DESC",
+            )?,
+            edges_by_kind: grouped(
+                "SELECT kind, COUNT(*) FROM edges GROUP BY kind ORDER BY COUNT(*) DESC",
+            )?,
+            files_by_language: grouped(
+                "SELECT language, COUNT(*) FROM files GROUP BY language ORDER BY COUNT(*) DESC",
+            )?,
             db_size_bytes: size(""),
             wal_size_bytes: size("-wal"),
             last_updated: self.last_indexed_at()?.unwrap_or(0),
@@ -893,18 +1086,23 @@ impl Store {
 
     /// Fold the WAL back into the main database file.
     pub fn checkpoint(&self) -> Result<()> {
-        self.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+        self.conn
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
         Ok(())
     }
 
     pub fn optimize(&self) -> Result<()> {
-        self.conn.execute_batch("INSERT INTO nodes_fts(nodes_fts) VALUES ('optimize'); PRAGMA optimize;")?;
+        self.conn.execute_batch(
+            "INSERT INTO nodes_fts(nodes_fts) VALUES ('optimize'); PRAGMA optimize;",
+        )?;
         Ok(())
     }
 }
 
 fn escape_like(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 fn insert_node(tx: &Connection, n: &Node) -> Result<()> {
@@ -997,7 +1195,8 @@ fn write_file(tx: &Connection, file: &FileRecord, result: &ExtractionResult) -> 
             name_tail(&r.reference_name),
         ])?;
     }
-    let errors = (!file.errors.is_empty()).then(|| serde_json::to_string(&file.errors).unwrap_or_default());
+    let errors =
+        (!file.errors.is_empty()).then(|| serde_json::to_string(&file.errors).unwrap_or_default());
     tx.execute(
         &format!(
             "INSERT INTO files ({FILE_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?)
