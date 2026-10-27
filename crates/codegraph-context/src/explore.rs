@@ -501,17 +501,22 @@ fn dispatch_section(store: &Store, named: &[&Scored], ranked: &[Scored]) -> Resu
     ];
     let mut out = String::new();
     let describe = |via: &str, key: &str| -> String {
-        let key = key.split_once(':').map(|(_, k)| k).unwrap_or(key);
+        // Event and slot keys carry their channel: `event:saved`.
+        let key = match via {
+            "event" | "fnptr" => key.split_once(':').map_or(key, |(_, k)| k),
+            _ => key,
+        };
         match via {
             "http" => format!("requests `{key}`"),
             "nav" => format!("navigates to `{key}`"),
             "fnptr" => format!("calls function-pointer slot `{key}`"),
-            _ => format!("emits `{key}`"),
+            "event" => format!("emits `{key}`"),
+            family => format!("dispatches `{key}` ({family})"),
         }
     };
     let dispatch_of = |e: &codegraph_core::Edge| -> Option<(String, String)> {
         let m = e.metadata.as_ref()?;
-        if m.get("synthesizedBy")?.as_str()? != "dispatch" {
+        if !matches!(m.get("synthesizedBy")?.as_str()?, "dispatch" | "synth") {
             return None;
         }
         let via = m.get("dispatch")?.as_str()?.to_string();

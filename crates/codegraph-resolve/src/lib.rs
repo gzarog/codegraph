@@ -6,6 +6,7 @@ pub mod imports;
 pub mod matcher;
 pub mod modules;
 pub mod symbols;
+pub mod synth;
 
 use codegraph_core::{Edge, Provenance, ReferenceKind, UnresolvedReference};
 use codegraph_store::Store;
@@ -53,15 +54,25 @@ pub fn resolve_pending(
     root: &Path,
     progress: &dyn Fn(usize, usize),
 ) -> Result<ResolveOutcome, ResolveError> {
+    let timings = std::env::var_os("CODEGRAPH_TIMINGS").is_some();
+    let t = std::time::Instant::now();
+    let lap = |what: &str| {
+        if timings {
+            eprintln!("[resolve] {what}: {:?}", t.elapsed());
+        }
+    };
     // Joins depend on binds and routes anywhere in the project: redo them.
     store.reopen_dispatch_refs()?;
+    lap("reopen");
     let total = store.count_refs(codegraph_store::RefStatus::Pending)? as usize;
     let mut outcome = ResolveOutcome::default();
     if total == 0 {
         return Ok(outcome);
     }
     let mut syms = Symbols::load(store)?;
+    lap("symbols");
     let modules = Modules::load(root, &syms);
+    lap("modules");
 
     // Pass 1: supertypes, so member lookups can walk inheritance in pass 2.
     let mut pending = Vec::new();
@@ -129,11 +140,13 @@ pub fn resolve_pending(
         }
     }
     outcome.attempted += rest.len();
+    lap("matched");
     let rows: Vec<(i64, Edge, String)> = resolved
         .into_iter()
         .map(|(id, (e, f))| (id, e, f))
         .collect();
     store.apply_resolutions(&rows, &failed)?;
+    lap("applied");
 
     // Pass 3: join fires to binds and requests to routes; one site may reach
     // several targets.

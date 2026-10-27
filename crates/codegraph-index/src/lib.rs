@@ -441,10 +441,28 @@ pub fn index_project(
         }
         let resolve_progress =
             |done: usize, total: usize| progress(Progress::Resolving { done, total });
+        let timings = std::env::var_os("CODEGRAPH_TIMINGS").is_some();
+        let t = Instant::now();
         let outcome = codegraph_resolve::resolve_pending(store, root, &resolve_progress)?;
+        if timings {
+            eprintln!(
+                "[index] resolve: {:?} (stored by {:?})",
+                t.elapsed(),
+                t - started
+            );
+        }
         report.refs_resolved = outcome.resolved;
         report.refs_failed = outcome.failed;
+        let t = Instant::now();
+        codegraph_resolve::synth::synthesize(store, root)?;
+        if timings {
+            eprintln!("[index] synthesize: {:?}", t.elapsed());
+        }
+        let t = Instant::now();
         store.rebuild_name_segments()?;
+        if timings {
+            eprintln!("[index] name segments: {:?}", t.elapsed());
+        }
         store.set_metadata("last_indexed_at", &now_ms().to_string())?;
     }
     report.duration_ms = started.elapsed().as_millis();

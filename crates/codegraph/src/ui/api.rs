@@ -162,7 +162,7 @@ fn groups(cg: &CodeGraph, edges: &[(Edge, String)]) -> Result<Value, (u16, Strin
         let kinds: HashSet<&str> = es.iter().map(|e| e.kind.as_str()).collect();
         let dynamic = es.iter().find_map(|e| {
             let m = e.metadata.as_ref()?;
-            (m.get("synthesizedBy")?.as_str()? == "dispatch")
+            matches!(m.get("synthesizedBy")?.as_str()?, "dispatch" | "synth")
                 .then(|| json!({ "via": m.get("dispatch"), "key": m.get("key") }))
         });
         let mut b = brief(n);
