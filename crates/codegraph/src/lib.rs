@@ -3,11 +3,13 @@
 
 pub mod format;
 pub mod githooks;
+pub mod global;
 pub mod installer;
 pub mod lock;
 pub mod mcp;
 pub mod project;
 pub mod prompt;
+pub mod upgrade;
 pub mod watch;
 
 pub use codegraph_context::{ContextFormat, ContextOptions};

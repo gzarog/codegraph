@@ -236,6 +236,18 @@ enum Command {
     /// Claude Code UserPromptSubmit hook (reads {prompt, cwd} JSON on stdin)
     #[command(hide = true)]
     PromptHook,
+    /// Upgrade codegraph to the latest release
+    Upgrade {
+        /// Only report whether a newer release exists
+        #[arg(long)]
+        check: bool,
+        /// Install this release tag (e.g. v0.2.0) instead of the latest
+        #[arg(long, value_name = "TAG")]
+        version: Option<String>,
+        /// Reinstall even when already up to date
+        #[arg(long)]
+        force: bool,
+    },
     /// Print the version
     Version,
 }
@@ -571,6 +583,9 @@ fn run(cli: Cli) -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&s)?);
             } else {
                 print!("{}", format::status(&s));
+                if let Some(n) = codegraph::upgrade::cached_notice() {
+                    println!("\n{n}");
+                }
             }
         }
         Command::Query {
@@ -802,6 +817,7 @@ fn run(cli: Cli) -> Result<()> {
             no_watch,
         } => {
             let root = path.path.unwrap_or_else(cwd);
+            codegraph::upgrade::check_in_background();
             codegraph::mcp::serve_stdio(Some(&root), !no_watch)?;
         }
         Command::Install {
@@ -881,6 +897,23 @@ fn run(cli: Cli) -> Result<()> {
                 .unwrap_or_else(cwd);
             if let Some(text) = codegraph::prompt::run(prompt, &cwd) {
                 print!("{text}");
+            }
+        }
+        Command::Upgrade {
+            check,
+            version,
+            force,
+        } => {
+            let code = codegraph::upgrade::run(
+                &codegraph::upgrade::UpgradeOptions {
+                    check,
+                    version,
+                    force,
+                },
+                &mut |line| println!("{line}"),
+            )?;
+            if code != 0 {
+                std::process::exit(code);
             }
         }
         Command::Version => println!("codegraph {}", env!("CARGO_PKG_VERSION")),

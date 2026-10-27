@@ -294,7 +294,10 @@ impl Server {
                     "protocolVersion": version,
                     "capabilities": { "tools": { "listChanged": false } },
                     "serverInfo": { "name": "codegraph", "version": env!("CARGO_PKG_VERSION") },
-                    "instructions": SERVER_INSTRUCTIONS,
+                    "instructions": match crate::upgrade::cached_notice() {
+                        Some(n) => format!("{SERVER_INSTRUCTIONS}\n\n{n}"),
+                        None => SERVER_INSTRUCTIONS.to_string(),
+                    },
                 }))
             }
             "ping" => Ok(json!({})),
@@ -461,7 +464,13 @@ pub fn run_tool(cg: &CodeGraph, name: &str, args: &Value) -> Result<String, Stri
             Ok(format::impact(&out))
         }
         "codegraph_node" => node_tool(cg, args),
-        "codegraph_status" => Ok(format::status(&cg.status().map_err(e)?)),
+        "codegraph_status" => {
+            let mut out = format::status(&cg.status().map_err(e)?);
+            if let Some(n) = crate::upgrade::cached_notice() {
+                out.push_str(&format!("\n{n}\n"));
+            }
+            Ok(out)
+        }
         "codegraph_files" => {
             let files = cg.store().all_files().map_err(se)?;
             let format = arg_str(args, "format")

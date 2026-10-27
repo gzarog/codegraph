@@ -10,6 +10,10 @@ server.
 ## Quick start
 
 ```bash
+# a release binary (checksum-verified, into ~/.local/bin)
+curl -fsSL https://raw.githubusercontent.com/gzarog/codegraph/main/install.sh | sh
+# Windows: irm https://raw.githubusercontent.com/gzarog/codegraph/main/install.ps1 | iex
+# or from source
 cargo install --path crates/codegraph
 
 cd your-project
@@ -43,7 +47,9 @@ Or wire it by hand as a stdio MCP server:
 ```
 
 The server watches the project and re-indexes changed files about a second
-after you stop typing.
+after you stop typing. Once a day it also checks GitHub for a newer release
+and mentions it in `status` (`CODEGRAPH_NO_UPDATE_CHECK=1` or `DO_NOT_TRACK=1`
+turns that off).
 
 ## Commands
 
@@ -65,6 +71,7 @@ after you stop typing.
 | `watch [path]` | Keep the index in sync until interrupted |
 | `serve --mcp` | MCP server on stdio |
 | `install` / `uninstall` | Register CodeGraph with coding agents, or remove it |
+| `upgrade [--check] [--version vX.Y.Z]` | Install the latest release (or `cargo install` for source installs) |
 
 ## MCP tools
 
