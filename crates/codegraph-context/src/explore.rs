@@ -2,6 +2,7 @@
 //! file and capped to fit an agent's tool-result budget, plus the call path
 //! among the named symbols and what depends on them.
 
+use crate::memory::{self, ExploreMemory};
 use crate::relevance::{parse_parts, rank, Scored};
 use crate::source::{merge_ranges, numbered, read_source};
 use codegraph_core::{Node, NodeKind};
@@ -81,6 +82,18 @@ struct FilePlan {
 
 /// Run an explore query.
 pub fn explore(store: &Store, root: &Path, query: &str, opts: &ExploreOptions) -> Result<String> {
+    explore_in_session(store, root, query, opts, None)
+}
+
+/// Run an explore query for a session that remembers what it was shown:
+/// source it already has (unchanged) is replaced by a pointer.
+pub fn explore_in_session(
+    store: &Store,
+    root: &Path,
+    query: &str,
+    opts: &ExploreOptions,
+    mut memory: Option<&mut ExploreMemory>,
+) -> Result<String> {
     let file_count = store.file_count()?;
     let budget = budget_for(file_count);
     let max_files = opts
@@ -194,6 +207,13 @@ pub fn explore(store: &Store, root: &Path, query: &str, opts: &ExploreOptions) -
             if src.lines.len() <= STALE_WHOLE_FILE_MAX_LINES {
                 let _ = writeln!(section, "⚠ changed on disk after the last index sync — showing the current file in full.");
                 section.push_str(&numbered(&src.lines, 1, total_lines));
+                if let Some(m) = memory.as_deref_mut() {
+                    m.record(
+                        &plan.path,
+                        &memory::fingerprint(&src.lines),
+                        &[(1, total_lines)],
+                    );
+                }
             } else {
                 let _ = writeln!(section, "⚠ changed on disk after the last index sync — source omitted; Read this file directly.");
             }
@@ -229,6 +249,32 @@ pub fn explore(store: &Store, root: &Path, query: &str, opts: &ExploreOptions) -
                 }
                 merge_ranges(r, budget.gap_threshold)
             };
+            let fp = memory.as_ref().map(|_| memory::fingerprint(&src.lines));
+            let ranges = match (memory.as_deref(), &fp) {
+                (Some(m), Some(fp)) => {
+                    let (emit, covered) = m.split(&plan.path, fp, &ranges);
+                    if !covered.is_empty() {
+                        let within =
+                            |line: u32| covered.iter().any(|&(a, b)| a <= line && line <= b);
+                        let syms: Vec<&str> = plan
+                            .symbols
+                            .iter()
+                            .filter(|s| s.node.kind != NodeKind::File && within(s.node.start_line))
+                            .map(|s| s.node.name.as_str())
+                            .take(5)
+                            .collect();
+                        let _ = writeln!(
+                            section,
+                            "↩ Lines {}{} were already shown earlier in this conversation and are unchanged; not repeated.",
+                            memory::spans(&covered),
+                            if syms.is_empty() { String::new() } else { format!(" ({})", syms.join(", ")) }
+                        );
+                    }
+                    emit
+                }
+                _ => ranges,
+            };
+            let mut served: Vec<(u32, u32)> = Vec::new();
             let cap = budget.max_chars_per_file.max(if plan.pinned {
                 budget.max_chars_per_file * 2
             } else {
@@ -262,12 +308,19 @@ pub fn explore(store: &Store, root: &Path, query: &str, opts: &ExploreOptions) -
                         body,
                         "… (truncated at line {last}; ask for a specific symbol to see more)"
                     );
+                    if taken > 0 {
+                        served.push((s, last));
+                    }
                     break;
                 }
                 body.push_str(&chunk);
+                served.push((s, e));
                 prev_end = e;
             }
             section.push_str(&body);
+            if let (Some(m), Some(fp)) = (memory.as_deref_mut(), &fp) {
+                m.record(&plan.path, fp, &served);
+            }
         }
         section.push('\n');
         used += section.len();

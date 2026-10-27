@@ -34,14 +34,14 @@ pub fn holder(root: &Path) -> Option<u32> {
 }
 
 #[cfg(unix)]
-fn alive(pid: u32) -> bool {
+pub fn alive(pid: u32) -> bool {
     // Signal 0 checks existence; EPERM means it exists but isn't ours.
     let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
     rc == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 #[cfg(not(unix))]
-fn alive(_pid: u32) -> bool {
+pub fn alive(_pid: u32) -> bool {
     true
 }
 

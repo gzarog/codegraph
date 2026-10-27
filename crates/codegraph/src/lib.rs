@@ -1,6 +1,7 @@
 //! CodeGraph: a local-first knowledge graph of a codebase for AI coding
 //! agents. This crate is the project facade, the MCP server and the CLI.
 
+pub mod daemon;
 pub mod format;
 pub mod githooks;
 pub mod global;

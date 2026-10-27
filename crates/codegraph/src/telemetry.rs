@@ -128,27 +128,10 @@ fn write_config(dir: &Path, cfg: &ConfigFile) {
 
 /// A random UUIDv4, derived from nothing about the machine.
 fn new_machine_id() -> String {
-    let mut bytes = [0u8; 16];
-    let mut filled = false;
-    #[cfg(unix)]
-    {
-        use std::io::Read;
-        if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-            filled = f.read_exact(&mut bytes).is_ok();
-        }
-    }
-    if !filled {
-        // RandomState is seeded from the OS's randomness source.
-        use std::hash::{BuildHasher, Hasher};
-        for chunk in bytes.chunks_mut(8) {
-            let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-            h.write_u64(global::now_ms());
-            chunk.copy_from_slice(&h.finish().to_le_bytes()[..chunk.len()]);
-        }
-    }
+    let mut bytes: [u8; 16] = global::random_bytes();
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    let hex = global::hex(&bytes);
     format!(
         "{}-{}-{}-{}-{}",
         &hex[..8],

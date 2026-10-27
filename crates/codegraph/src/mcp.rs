@@ -176,14 +176,71 @@ pub fn enabled_tools() -> Vec<String> {
     }
 }
 
+/// Open projects and their watchers, shared by every session of a process
+/// (one in stdio mode, many in the daemon).
+pub struct Engine {
+    projects: Mutex<HashMap<PathBuf, Arc<Mutex<CodeGraph>>>>,
+    watchers: Mutex<HashMap<PathBuf, crate::watch::Watcher>>,
+    watch: bool,
+}
+
+impl Engine {
+    pub fn new(watch: bool) -> Arc<Self> {
+        Arc::new(Engine {
+            projects: Mutex::new(HashMap::new()),
+            watchers: Mutex::new(HashMap::new()),
+            watch,
+        })
+    }
+
+    /// The open project at `root`, opening (and catching up) on first use.
+    pub fn project(&self, root: &Path) -> Result<Arc<Mutex<CodeGraph>>, String> {
+        let mut projects = self.projects.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(cg) = projects.get(root) {
+            return Ok(cg.clone());
+        }
+        let mut cg = CodeGraph::open(root).map_err(|e| e.to_string())?;
+        // Catch up with edits made while no server was watching.
+        let _ = cg.sync(None);
+        let cg = Arc::new(Mutex::new(cg));
+        if self.watch {
+            if let Ok(w) = crate::watch::watch(cg.clone(), |_| {}) {
+                self.watchers
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .insert(root.to_path_buf(), w);
+            }
+        }
+        projects.insert(root.to_path_buf(), cg.clone());
+        Ok(cg)
+    }
+
+    /// Changed-but-unsynced files, when a watcher covers `root`.
+    pub fn pending(&self, root: &Path) -> Option<Vec<String>> {
+        self.watchers
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(root)
+            .map(|w| w.pending())
+    }
+}
+
+/// Cross-call explore dedup is opt-in: an MCP connection isn't a reliable
+/// conversation boundary (hosts reuse connections for subagents, and
+/// compaction drops source while the connection lives).
+pub fn explore_dedup_enabled() -> bool {
+    crate::global::env_truthy("CODEGRAPH_EXPLORE_DEDUP")
+}
+
+/// One MCP session: protocol state over a shared engine.
 pub struct Server {
     default_root: Option<PathBuf>,
-    projects: HashMap<PathBuf, Arc<Mutex<CodeGraph>>>,
+    engine: Arc<Engine>,
     tools: Vec<String>,
-    watch: bool,
-    watchers: HashMap<PathBuf, crate::watch::Watcher>,
     /// The connecting agent's `clientInfo` name and version.
     client: Option<(String, String)>,
+    /// What this session's explore calls already showed, per project.
+    memory: Option<HashMap<PathBuf, codegraph_context::ExploreMemory>>,
 }
 
 /// Prefix `text` with a warning naming the files it mentions that changed on
@@ -234,13 +291,16 @@ fn arg_bool(args: &Value, key: &str) -> Option<bool> {
 
 impl Server {
     pub fn new(default_root: Option<PathBuf>, watch: bool) -> Self {
+        Self::with_engine(default_root, Engine::new(watch))
+    }
+
+    pub fn with_engine(default_root: Option<PathBuf>, engine: Arc<Engine>) -> Self {
         Server {
             default_root,
-            projects: HashMap::new(),
+            engine,
             tools: enabled_tools(),
-            watch,
-            watchers: HashMap::new(),
             client: None,
+            memory: explore_dedup_enabled().then(HashMap::new),
         }
     }
 
@@ -254,20 +314,7 @@ impl Server {
         let root = find_root(&start).ok_or_else(|| {
             format!("{} is not indexed (no .codegraph/ found). Use your built-in tools for it; the user can run `codegraph init` there.", start.display())
         })?;
-        if let Some(cg) = self.projects.get(&root) {
-            return Ok(cg.clone());
-        }
-        let mut cg = CodeGraph::open(&root).map_err(|e| e.to_string())?;
-        // Catch up with edits made while no server was watching.
-        let _ = cg.sync(None);
-        let cg = Arc::new(Mutex::new(cg));
-        if self.watch {
-            if let Ok(w) = crate::watch::watch(cg.clone(), |_| {}) {
-                self.watchers.insert(root.clone(), w);
-            }
-        }
-        self.projects.insert(root, cg.clone());
-        Ok(cg)
+        self.engine.project(&root)
     }
 
     pub fn handle(&mut self, msg: &Value) -> Option<Value> {
@@ -359,15 +406,19 @@ impl Server {
             Ok(g) => g,
             Err(p) => p.into_inner(),
         };
-        let pending = match self.watchers.get(guard.root()) {
-            Some(w) => w.pending(),
+        let pending = match self.engine.pending(guard.root()) {
+            Some(p) => p,
             None => {
                 // No watcher: catch up now (unchanged files are skipped by stat).
                 let _ = guard.sync(None);
                 Vec::new()
             }
         };
-        match run_tool(&guard, name, args) {
+        let memory = self
+            .memory
+            .as_mut()
+            .map(|m| m.entry(guard.root().to_path_buf()).or_default());
+        match run_tool_in_session(&guard, name, args, memory) {
             Ok(text) => text_result(with_staleness_banner(text, &pending)),
             Err(e) => error_result(e),
         }
@@ -409,6 +460,23 @@ fn kind_filter(kind: &str) -> Vec<NodeKind> {
             NodeKind::Enum,
         ],
         k => k.parse().map(|k| vec![k]).unwrap_or_default(),
+    }
+}
+
+/// `run_tool`, with explore remembering what this session was shown.
+pub fn run_tool_in_session(
+    cg: &CodeGraph,
+    name: &str,
+    args: &Value,
+    memory: Option<&mut codegraph_context::ExploreMemory>,
+) -> Result<String, String> {
+    match (name, memory) {
+        ("codegraph_explore", Some(memory)) => {
+            let query = arg_str(args, "query").ok_or("`query` is required")?;
+            cg.explore_in_session(query, arg_num(args, "maxFiles").map(|n| n as usize), memory)
+                .map_err(|e| e.to_string())
+        }
+        _ => run_tool(cg, name, args),
     }
 }
 
@@ -587,12 +655,9 @@ fn exit_with_parent() {
     }
 }
 
-/// Run the stdio server rooted at `root` (or the client's root).
-pub fn serve_stdio(root: Option<&Path>, watch: bool) -> std::io::Result<()> {
-    exit_with_parent();
-    let default_root = root.and_then(find_root);
-    let mut server = Server::new(default_root, watch);
-    // Telemetry: send completed days now, keep counts on disk every minute.
+/// Telemetry upkeep for a long-lived server: send completed days now, keep
+/// counts on disk every minute, send again hourly.
+pub fn start_telemetry_thread() {
     std::thread::spawn(|| {
         crate::telemetry::flush();
         let mut minutes = 0u32;
@@ -606,6 +671,23 @@ pub fn serve_stdio(root: Option<&Path>, watch: bool) -> std::io::Result<()> {
             }
         }
     });
+}
+
+/// Run the stdio server rooted at `root` (or the client's root). With a
+/// project root and watching on, sessions go through the project's shared
+/// daemon unless `daemon` is false; if the daemon can't be reached the
+/// server runs in-process.
+pub fn serve_stdio(root: Option<&Path>, watch: bool, daemon: bool) -> std::io::Result<()> {
+    exit_with_parent();
+    let default_root = root.and_then(find_root);
+    if let (true, true, Some(r)) = (daemon && crate::daemon::enabled(), watch, &default_root) {
+        match crate::daemon::connect_or_spawn(r) {
+            Some(stream) => return crate::daemon::proxy(stream),
+            None => eprintln!("[CodeGraph] daemon unavailable; serving in-process"),
+        }
+    }
+    let mut server = Server::new(default_root, watch);
+    start_telemetry_thread();
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     let result = server.run(stdin.lock(), stdout.lock());

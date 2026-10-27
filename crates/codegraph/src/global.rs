@@ -47,3 +47,30 @@ pub fn write_atomic(path: &std::path::Path, contents: &[u8]) -> std::io::Result<
         let _ = std::fs::remove_file(&tmp);
     })
 }
+
+/// `n` random bytes from the OS.
+pub fn random_bytes<const N: usize>() -> [u8; N] {
+    let mut bytes = [0u8; N];
+    #[cfg(unix)]
+    {
+        use std::io::Read;
+        if std::fs::File::open("/dev/urandom")
+            .and_then(|mut f| f.read_exact(&mut bytes))
+            .is_ok()
+        {
+            return bytes;
+        }
+    }
+    // RandomState is seeded from the OS's randomness source.
+    use std::hash::{BuildHasher, Hasher};
+    for chunk in bytes.chunks_mut(8) {
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        h.write_u64(now_ms());
+        chunk.copy_from_slice(&h.finish().to_le_bytes()[..chunk.len()]);
+    }
+    bytes
+}
+
+pub fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}

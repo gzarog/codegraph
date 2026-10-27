@@ -47,7 +47,12 @@ Or wire it by hand as a stdio MCP server:
 ```
 
 The server watches the project and re-indexes changed files about a second
-after you stop typing. Once a day it also checks GitHub for a newer release
+after you stop typing. Every agent session in a project goes through one shared
+background daemon (one watcher, one database connection), which exits five
+minutes after its last client; `CODEGRAPH_NO_DAEMON=1` or `--no-daemon` serves
+in-process instead. With `CODEGRAPH_EXPLORE_DEDUP=1`, `codegraph_explore` stops
+re-sending source a session was already shown (unchanged files only) and points
+back to it instead. Once a day it also checks GitHub for a newer release
 and mentions it in `status` (`CODEGRAPH_NO_UPDATE_CHECK=1` or `DO_NOT_TRACK=1`
 turns that off).
 
@@ -69,7 +74,8 @@ turns that off).
 | `dead-code` | Symbols nothing references |
 | `files` | Indexed file tree (`--format tree\|flat\|grouped`) |
 | `watch [path]` | Keep the index in sync until interrupted |
-| `serve --mcp` | MCP server on stdio |
+| `serve --mcp [--no-daemon]` | MCP server on stdio, through the project's shared daemon |
+| `daemon [list\|stop] [--all]` | List or stop the shared background daemons |
 | `ui [--port N] [--no-open]` | Browser viewer on 127.0.0.1: symbol pages with callers/callees and blast radius, file outlines, a module map, call-path flows, routes, dead code and saved trails |
 | `install` / `uninstall` | Register CodeGraph with coding agents, or remove it |
 | `upgrade [--check] [--version vX.Y.Z]` | Install the latest release (or `cargo install` for source installs) |

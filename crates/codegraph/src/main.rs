@@ -199,6 +199,19 @@ enum Command {
         /// Don't watch files for changes
         #[arg(long)]
         no_watch: bool,
+        /// Serve in this process instead of through the project's shared daemon
+        #[arg(long)]
+        no_daemon: bool,
+    },
+    /// List the shared background daemons, or stop them
+    Daemon {
+        /// list (default) or stop
+        action: Option<String>,
+        /// Project path (stop: defaults to the nearest indexed directory)
+        path: Option<PathBuf>,
+        /// stop: every running daemon
+        #[arg(long)]
+        all: bool,
     },
     /// Register the MCP server with your coding agents
     Install {
@@ -291,6 +304,7 @@ impl Command {
             Command::Unlock { .. } => "unlock",
             Command::GitHooks { .. } => "git-hooks",
             Command::Serve { .. } => "serve",
+            Command::Daemon { .. } => "daemon",
             Command::Install { .. } => "install",
             Command::Uninstall { .. } => "uninstall",
             Command::PromptHook => "prompt-hook",
@@ -867,10 +881,60 @@ fn run(cli: Cli) -> Result<()> {
             path,
             mcp: _,
             no_watch,
+            no_daemon,
         } => {
             let root = path.path.unwrap_or_else(cwd);
             codegraph::upgrade::check_in_background();
-            codegraph::mcp::serve_stdio(Some(&root), !no_watch)?;
+            codegraph::mcp::serve_stdio(Some(&root), !no_watch, !no_daemon)?;
+        }
+        Command::Daemon { action, path, all } => {
+            use codegraph::daemon;
+            match action.as_deref().unwrap_or("list") {
+                "list" | "status" => {
+                    let running = daemon::list();
+                    if running.is_empty() {
+                        println!("No CodeGraph daemons running.");
+                    }
+                    let now = codegraph::global::now_ms();
+                    for d in running {
+                        let up = now.saturating_sub(d.started_at) / 1000;
+                        println!(
+                            "pid {:<7} v{:<8} up {:>3}m{:02}s  {}",
+                            d.pid,
+                            d.version,
+                            up / 60,
+                            up % 60,
+                            d.root
+                        );
+                    }
+                }
+                "stop" => {
+                    let roots: Vec<PathBuf> = if all {
+                        daemon::list()
+                            .into_iter()
+                            .map(|d| PathBuf::from(d.root))
+                            .collect()
+                    } else {
+                        let start = path.unwrap_or_else(cwd);
+                        vec![codegraph::find_root(&start).with_context(|| {
+                            format!("no CodeGraph index at or above {}", start.display())
+                        })?]
+                    };
+                    for root in roots {
+                        if daemon::stop(&root) {
+                            println!("Stopped the daemon for {}", root.display());
+                        } else {
+                            println!("No daemon running for {}", root.display());
+                        }
+                    }
+                }
+                // Internal: what `serve --mcp` starts in the background.
+                "run" => {
+                    let root = path.context("daemon run needs a project path")?;
+                    daemon::run(&root)?;
+                }
+                other => bail!("unknown daemon action `{other}` (use list or stop)"),
+            }
         }
         Command::Install {
             target,
@@ -1049,7 +1113,7 @@ fn main() {
     let cli = Cli::parse();
     let name = cli.command.name();
     // The MCP server counts its own tool calls; `telemetry` itself is never counted.
-    let counted = !matches!(name, "serve" | "telemetry" | "ui");
+    let counted = !matches!(name, "serve" | "telemetry" | "ui" | "daemon");
     let result = run(cli);
     if counted {
         codegraph::telemetry::record_usage(

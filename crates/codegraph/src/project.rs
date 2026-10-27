@@ -388,6 +388,22 @@ impl CodeGraph {
         )?)
     }
 
+    /// `explore` for a session that remembers what it was already shown.
+    pub fn explore_in_session(
+        &self,
+        query: &str,
+        max_files: Option<usize>,
+        memory: &mut codegraph_context::ExploreMemory,
+    ) -> Result<String> {
+        Ok(codegraph_context::explore_in_session(
+            &self.store,
+            &self.root,
+            query,
+            &ExploreOptions { max_files },
+            Some(memory),
+        )?)
+    }
+
     pub fn context(&self, query: &str, opts: &ContextOptions) -> Result<String> {
         let ctx = codegraph_context::build_context(&self.store, &self.root, query, opts)?;
         Ok(codegraph_context::format_context(

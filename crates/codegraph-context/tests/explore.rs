@@ -70,3 +70,32 @@ fn notes_dynamic_dispatch() {
         "{out}"
     );
 }
+
+#[test]
+fn a_session_is_not_shown_the_same_source_twice() {
+    use codegraph_context::{explore_in_session, ExploreMemory};
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let mut src = String::from("export function target() {\n");
+    for i in 0..20 {
+        src.push_str(&format!("  const v{i} = {i};\n"));
+    }
+    src.push_str("  return 1;\n}\nexport function other() { return target(); }\n");
+    write(root, "src/t.ts", &src);
+    let store = indexed(root);
+    let mut mem = ExploreMemory::default();
+    let opts = ExploreOptions::default();
+    let first = explore_in_session(&store, root, "target", &opts, Some(&mut mem)).unwrap();
+    assert!(first.contains("const v10 = 10"), "{first}");
+    let second = explore_in_session(&store, root, "target", &opts, Some(&mut mem)).unwrap();
+    assert!(!second.contains("const v10 = 10"), "{second}");
+    assert!(second.contains("already shown earlier"), "{second}");
+    // An edit invalidates what the session holds.
+    write(
+        root,
+        "src/t.ts",
+        &src.replace("const v10 = 10", "const v10 = 11"),
+    );
+    let third = explore_in_session(&store, root, "target", &opts, Some(&mut mem)).unwrap();
+    assert!(third.contains("const v10 = 11"), "{third}");
+}
