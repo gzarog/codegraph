@@ -248,8 +248,46 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+    /// Anonymous usage telemetry: on, off or status
+    Telemetry {
+        /// on, off or status
+        action: Option<String>,
+    },
     /// Print the version
     Version,
+}
+
+impl Command {
+    /// The command's name, for usage counts.
+    fn name(&self) -> &'static str {
+        match self {
+            Command::Init { .. } => "init",
+            Command::Uninit { .. } => "uninit",
+            Command::Index { .. } => "index",
+            Command::Sync { .. } => "sync",
+            Command::Status { .. } => "status",
+            Command::Query { .. } => "query",
+            Command::Explore { .. } => "explore",
+            Command::Context { .. } => "context",
+            Command::Node { .. } => "node",
+            Command::Files { .. } => "files",
+            Command::Callers(_) => "callers",
+            Command::Callees(_) => "callees",
+            Command::Impact { .. } => "impact",
+            Command::Affected { .. } => "affected",
+            Command::DeadCode { .. } => "dead-code",
+            Command::Watch { .. } => "watch",
+            Command::Unlock { .. } => "unlock",
+            Command::GitHooks { .. } => "git-hooks",
+            Command::Serve { .. } => "serve",
+            Command::Install { .. } => "install",
+            Command::Uninstall { .. } => "uninstall",
+            Command::PromptHook => "prompt-hook",
+            Command::Upgrade { .. } => "upgrade",
+            Command::Telemetry { .. } => "telemetry",
+            Command::Version => "version",
+        }
+    }
 }
 
 fn prompt(question: &str, default: &str) -> String {
@@ -500,6 +538,7 @@ fn run(cli: Cli) -> Result<()> {
             if !no_index {
                 let report = cg.index_all(Some(&progress_printer(false)))?;
                 print_report(&report, "Indexed");
+                record_index(&cg, &report);
             }
         }
         Command::Uninit { path } => {
@@ -564,6 +603,7 @@ fn run(cli: Cli) -> Result<()> {
             if !quiet {
                 print_report(&report, "Indexed");
             }
+            record_index(&cg, &report);
         }
         Command::Sync { path, quiet } => {
             let mut cg = open(path.as_deref())?;
@@ -844,6 +884,7 @@ fn run(cli: Cli) -> Result<()> {
             if targets.is_empty() {
                 println!("No agents selected. Pass --target (e.g. --target claude,cursor) or --target all.");
             }
+            let mut outcomes = Vec::new();
             for t in &targets {
                 let opts = installer::InstallOptions {
                     auto_allow: !no_permissions,
@@ -851,14 +892,26 @@ fn run(cli: Cli) -> Result<()> {
                 };
                 let o = t.install(&env, loc, opts)?;
                 print_outcome(t.display_name, &o);
+                outcomes.push(o);
             }
             if !targets.is_empty() {
                 println!("Restart your agent(s) to load CodeGraph. Index a project with `codegraph init`.");
+            }
+            if !targets.is_empty() {
+                codegraph::telemetry::record_event(
+                    "install",
+                    serde_json::json!({
+                        "targets": targets.iter().map(|t| t.id).collect::<Vec<_>>(),
+                        "scope": loc_name(loc),
+                        "kind": install_kind(&outcomes),
+                    }),
+                );
             }
             if init {
                 let mut cg = CodeGraph::init(&cwd())?;
                 let report = cg.index_all(Some(&progress_printer(false)))?;
                 print_report(&report, "Indexed");
+                record_index(&cg, &report);
             }
         }
         Command::Uninstall {
@@ -875,6 +928,12 @@ fn run(cli: Cli) -> Result<()> {
             for t in &targets {
                 let o = t.uninstall(&env, loc)?;
                 print_outcome(t.display_name, &o);
+            }
+            if !targets.is_empty() {
+                codegraph::telemetry::record_event(
+                    "uninstall",
+                    serde_json::json!({ "targets": targets.iter().map(|t| t.id).collect::<Vec<_>>() }),
+                );
             }
         }
         Command::PromptHook => {
@@ -916,6 +975,30 @@ fn run(cli: Cli) -> Result<()> {
                 std::process::exit(code);
             }
         }
+        Command::Telemetry { action } => {
+            use codegraph::telemetry;
+            let st = match action.as_deref().unwrap_or("status") {
+                "on" => telemetry::set_enabled(true, "cli"),
+                "off" => telemetry::set_enabled(false, "cli"),
+                "status" => telemetry::status(),
+                other => bail!("unknown telemetry action `{other}` (use on, off or status)"),
+            };
+            println!(
+                "Telemetry is {} ({}).",
+                if st.enabled { "on" } else { "off" },
+                st.decided_by.describe()
+            );
+            match (&st.endpoint, st.enabled) {
+                (Some(url), true) => println!("Endpoint: {url}"),
+                (None, true) => println!("No endpoint is configured, so nothing is sent (set CODEGRAPH_TELEMETRY_ENDPOINT)."),
+                _ => {}
+            }
+            if let Some(id) = &st.machine_id {
+                println!("Machine ID: {id}");
+            }
+            println!("Stored in {}", st.config_path.display());
+            println!("What is collected: {}", telemetry::DOCS);
+        }
         Command::Version => println!("codegraph {}", env!("CARGO_PKG_VERSION")),
     }
     Ok(())
@@ -927,8 +1010,55 @@ fn main() {
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
-    if let Err(e) = run(Cli::parse()) {
+    let cli = Cli::parse();
+    let name = cli.command.name();
+    // The MCP server counts its own tool calls; `telemetry` itself is never counted.
+    let counted = !matches!(name, "serve" | "telemetry");
+    let result = run(cli);
+    if counted {
+        codegraph::telemetry::record_usage(
+            codegraph::telemetry::UsageKind::CliCommand,
+            name,
+            result.is_err(),
+            None,
+        );
+        codegraph::telemetry::flush();
+    }
+    if let Err(e) = result {
         eprintln!("error: {e:#}");
         std::process::exit(1);
+    }
+}
+
+fn record_index(cg: &CodeGraph, report: &codegraph::IndexReport) {
+    if let Ok(s) = cg.status() {
+        codegraph::telemetry::record_index(
+            &s.stats.files_by_language,
+            report.files_scanned,
+            report.duration_ms,
+        );
+    }
+}
+
+fn loc_name(loc: Location) -> &'static str {
+    match loc {
+        Location::Global => "global",
+        Location::Local => "local",
+    }
+}
+
+/// fresh (nothing was configured), upgrade (an entry changed) or reinstall.
+fn install_kind(outcomes: &[installer::Outcome]) -> &'static str {
+    use installer::Action;
+    let actions: Vec<Action> = outcomes
+        .iter()
+        .flat_map(|o| o.files.iter().map(|f| f.action))
+        .collect();
+    if actions.contains(&Action::Updated) {
+        "upgrade"
+    } else if actions.contains(&Action::Created) {
+        "fresh"
+    } else {
+        "reinstall"
     }
 }

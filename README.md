@@ -72,6 +72,7 @@ turns that off).
 | `serve --mcp` | MCP server on stdio |
 | `install` / `uninstall` | Register CodeGraph with coding agents, or remove it |
 | `upgrade [--check] [--version vX.Y.Z]` | Install the latest release (or `cargo install` for source installs) |
+| `telemetry [on\|off\|status]` | Anonymous usage statistics; nothing is sent unless an endpoint is configured ([TELEMETRY.md](TELEMETRY.md)) |
 
 ## MCP tools
 
@@ -134,7 +135,9 @@ data directory.
 | `codegraph-store` | SQLite schema, writes, lookups and ranked search |
 | `codegraph-index` | File discovery, parallel extraction, incremental sync |
 | `codegraph-resolve` | Import parsing, module resolution and reference matching |
-| `codegraph-frameworks` | Framework detection and route extraction |
+| `codegraph-frameworks` | Framework detection, route extraction and dynamic-dispatch sites |
+| `codegraph-http` | Minimal std-only HTTP/1.1 server |
+| `codegraph-telemetry` | Telemetry allowlist, self-hosted ingest server and dashboard |
 | `codegraph-graph` | Callers/callees, impact, paths, type hierarchy, dead code |
 | `codegraph-context` | Relevance ranking, `explore` and task context |
 | `codegraph` | Project facade, CLI binary and MCP server |

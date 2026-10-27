@@ -161,6 +161,7 @@ dependencies = [
  "codegraph-index",
  "codegraph-resolve",
  "codegraph-store",
+ "codegraph-telemetry",
  "globset",
  "libc",
  "notify",
@@ -244,6 +245,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "codegraph-http"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "codegraph-index"
 version = "0.1.0"
 dependencies = [
@@ -287,6 +295,18 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "codegraph-telemetry"
+version = "0.1.0"
+dependencies = [
+ "codegraph-http",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]

@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CodeGraph Telemetry</title>
+<style>
+:root {
+  --bg: #f7f7f5; --fg: #1d1d1b; --muted: #6b6b66; --card: #ffffff; --line: #e3e3de;
+  --accent: #3559d6; --accent-2: #0f9d7a; --grid: #ecece8; --bar: #c9d3f5;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141413; --fg: #ecece8; --muted: #a3a39c; --card: #1f1f1d; --line: #2f2f2c;
+    --accent: #7f9cff; --accent-2: #3fd0a8; --grid: #2a2a27; --bar: #34406b;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 20px 24px 8px; max-width: 1200px; margin: 0 auto; }
+h1 { font-size: 18px; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 13px; font-weight: 600; margin: 0 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.controls { display: flex; gap: 6px; align-items: center; }
+.seg button { border: 1px solid var(--line); background: var(--card); color: var(--fg); padding: 5px 11px; font: inherit; cursor: pointer; }
+.seg button:first-child { border-radius: 8px 0 0 8px; }
+.seg button:last-child { border-radius: 0 8px 8px 0; }
+.seg button + button { border-left: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--card); }
+a.logout { color: var(--muted); font-size: 13px; margin-left: 8px; }
+main { max-width: 1200px; margin: 0 auto; padding: 8px 24px 40px; display: grid; gap: 16px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
+.tile .v { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.tile .k { color: var(--muted); font-size: 12.5px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+svg { display: block; width: 100%; height: auto; }
+svg text { fill: var(--muted); font-size: 10px; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+td, th { padding: 5px 4px; text-align: left; border-bottom: 1px solid var(--line); font-weight: 400; }
+th { color: var(--muted); font-size: 12px; }
+td.n, th.n { text-align: right; }
+td .bar { height: 6px; border-radius: 3px; background: var(--bar); margin-top: 3px; }
+.empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.ret td { text-align: center; }
+.ret td:first-child, .ret th:first-child { text-align: left; }
+@media (max-width: 520px) { header, main { padding-left: 16px; padding-right: 16px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>CodeGraph telemetry</h1>
+  <div class="controls">
+    <div class="seg" role="group" aria-label="Range">
+      <button data-days="7">7d</button><button data-days="30">30d</button><button data-days="90">90d</button>
+    </div>
+    <a class="logout" href="/logout">Sign out</a>
+  </div>
+</header>
+<main>
+  <section class="tiles" id="tiles"></section>
+  <section class="card">
+    <h2>Active machines per day</h2>
+    <div class="legend"><span><i style="background:var(--accent)"></i>All</span><span><i style="background:var(--accent-2)"></i>Excluding CI</span></div>
+    <div id="machines"></div>
+  </section>
+  <section class="card">
+    <h2>Tool and command calls per day</h2>
+    <div id="calls"></div>
+  </section>
+  <section class="grid3" id="breakdowns"></section>
+  <section class="card">
+    <h2>Weekly retention (share of each first-seen cohort active in later weeks)</h2>
+    <div id="retention"></div>
+  </section>
+</main>
+<script>
+"use strict";
+const BREAKDOWNS = [
+  ["Tools and commands", "name", "usage_rollup"],
+  ["Errors by tool", "name_error", "usage_rollup"],
+  ["MCP clients", "client_name", "usage_rollup"],
+  ["Agents installed", "target", "install"],
+  ["Languages indexed", "language", "index"],
+  ["Project size", "file_count_bucket", "index"],
+  ["Index duration", "duration_bucket", "index"],
+  ["Operating system", "os", ""],
+  ["Architecture", "arch", ""],
+  ["Version", "codegraph_version", ""],
+  ["Install scope", "scope", "install"],
+];
+let days = 30;
+try { days = Number(localStorage.getItem("cg-days")) || 30; } catch (_) {}
+
+const fmt = (n) => new Intl.NumberFormat().format(n ?? 0);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+async function api(path) {
+  const r = await fetch(path, { credentials: "same-origin" });
+  if (r.status === 401) { location.href = "/login"; throw new Error("signed out"); }
+  if (!r.ok) throw new Error(path + ": " + r.status);
+  return r.json();
+}
+
+function tiles(s) {
+  const calls = s.events?.usage_rollup ?? 0;
+  const act = s.newMachines ? Math.round((100 * s.activated) / s.newMachines) + "%" : "—";
+  const items = [
+    ["Active machines", fmt(s.machines)],
+    ["Excluding CI", fmt(s.prodMachines)],
+    ["New machines", fmt(s.newMachines)],
+    ["Indexed within 7 days", act],
+    ["Tool and command calls", fmt(calls)],
+    ["Index runs", fmt(s.events?.index)],
+  ];
+  document.getElementById("tiles").innerHTML = items
+    .map(([k, v]) => `<div class="card tile"><div class="v">${v}</div><div class="k">${k}</div></div>`)
+    .join("");
+}
+
+function lineChart(el, rows, series) {
+  const W = 760, H = 200, P = { l: 34, r: 8, t: 8, b: 22 };
+  const tick = Math.max(1, Math.ceil(Math.max(0, ...rows.flatMap((r) => series.map((s) => s.get(r)))) / 4));
+  const max = tick * 4;
+  const x = (i) => P.l + (rows.length < 2 ? 0 : (i * (W - P.l - P.r)) / (rows.length - 1));
+  const y = (v) => H - P.b - (v * (H - P.t - P.b)) / max;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily active machines">`;
+  for (let g = 0; g <= 4; g++) {
+    const v = tick * g, yy = y(v);
+    svg += `<line x1="${P.l}" x2="${W - P.r}" y1="${yy}" y2="${yy}" stroke="var(--grid)"/><text x="${P.l - 6}" y="${yy + 3}" text-anchor="end">${fmt(v)}</text>`;
+  }
+  const step = Math.max(1, Math.ceil(rows.length / 8));
+  rows.forEach((r, i) => { if (i % step === 0) svg += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${r.day.slice(5)}</text>`; });
+  for (const s of series) {
+    const pts = rows.map((r, i) => `${x(i).toFixed(1)},${y(s.get(r)).toFixed(1)}`).join(" ");
+    svg += `<polyline fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" points="${pts}"/>`;
+    rows.forEach((r, i) => { svg += `<circle cx="${x(i)}" cy="${y(s.get(r))}" r="${rows.length > 45 ? 0 : 2.5}" fill="${s.color}"><title>${r.day}: ${fmt(s.get(r))}</title></circle>`; });
+  }
+  el.innerHTML = svg + "</svg>";
+}
+
+function barChart(el, rows, get) {
+  const W = 760, H = 160, P = { l: 34, r: 8, t: 8, b: 22 };
+  const tick = Math.max(1, Math.ceil(Math.max(0, ...rows.map(get)) / 2));
+  const max = tick * 2;
+  const bw = (W - P.l - P.r) / Math.max(1, rows.length);
+  const y = (v) => H - P.b - (v * (H - P.t - P.b)) / max;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Calls per day">`;
+  for (let g = 0; g <= 2; g++) {
+    const v = tick * g, yy = y(v);
+    svg += `<line x1="${P.l}" x2="${W - P.r}" y1="${yy}" y2="${yy}" stroke="var(--grid)"/><text x="${P.l - 6}" y="${yy + 3}" text-anchor="end">${fmt(v)}</text>`;
+  }
+  const step = Math.max(1, Math.ceil(rows.length / 8));
+  rows.forEach((r, i) => {
+    const v = get(r), top = y(v);
+    svg += `<rect x="${P.l + i * bw + 1}" y="${top}" width="${Math.max(1, bw - 2)}" height="${H - P.b - top}" rx="2" fill="var(--accent)"><title>${r.day}: ${fmt(v)}</title></rect>`;
+    if (i % step === 0) svg += `<text x="${P.l + i * bw + bw / 2}" y="${H - 6}" text-anchor="middle">${r.day.slice(5)}</text>`;
+  });
+  el.innerHTML = svg + "</svg>";
+}
+
+function table(title, rows) {
+  if (!rows.length) return `<div class="card"><h2>${esc(title)}</h2><div class="empty">No data in this range.</div></div>`;
+  const max = Math.max(...rows.map((r) => r.count));
+  const body = rows.slice(0, 12).map((r) =>
+    `<tr><td>${esc(r.value)}<div class="bar" style="width:${(100 * r.count) / max}%"></div></td><td class="n">${fmt(r.count)}</td><td class="n">${fmt(r.machineDays)}</td></tr>`).join("");
+  return `<div class="card"><h2>${esc(title)}</h2><table><thead><tr><th>Value</th><th class="n">Count</th><th class="n">Machine-days</th></tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+function retention(rows) {
+  const el = document.getElementById("retention");
+  if (!rows.some((r) => r.size)) { el.innerHTML = `<div class="empty">No cohorts yet.</div>`; return; }
+  const weeks = Math.max(...rows.map((r) => r.active.length));
+  let html = `<div style="overflow-x:auto"><table class="ret"><thead><tr><th>First seen (week of)</th><th>Machines</th>`;
+  for (let k = 1; k <= weeks; k++) html += `<th>+${k}w</th>`;
+  html += `</tr></thead><tbody>`;
+  for (const r of rows) {
+    html += `<tr><td>${r.week}</td><td>${fmt(r.size)}</td>`;
+    for (let k = 0; k < weeks; k++) {
+      const n = r.active[k];
+      if (n === undefined) { html += `<td></td>`; continue; }
+      const p = r.size ? n / r.size : 0;
+      html += `<td style="background:color-mix(in srgb, var(--accent) ${Math.round(p * 70)}%, transparent)">${r.size ? Math.round(p * 100) + "%" : "—"}</td>`;
+    }
+    html += `</tr>`;
+  }
+  el.innerHTML = html + `</tbody></table></div>`;
+}
+
+async function load() {
+  document.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.days) === days)));
+  const q = `?days=${days}`;
+  const [summary, series, ret, ...parts] = await Promise.all([
+    api("/api/summary" + q),
+    api("/api/timeseries" + q),
+    api("/api/retention" + q),
+    ...BREAKDOWNS.map(([, dim, event]) => api(`/api/breakdown${q}&dim=${dim}&event=${event}`)),
+  ]);
+  tiles(summary);
+  lineChart(document.getElementById("machines"), series, [
+    { get: (r) => r.machines, color: "var(--accent)" },
+    { get: (r) => r.prodMachines, color: "var(--accent-2)" },
+  ]);
+  barChart(document.getElementById("calls"), series, (r) => r.events.usage_rollup ?? 0);
+  document.getElementById("breakdowns").innerHTML = BREAKDOWNS.map(([title], i) => table(title, parts[i])).join("");
+  retention(ret);
+}
+
+document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => {
+  days = Number(b.dataset.days);
+  try { localStorage.setItem("cg-days", String(days)); } catch (_) {}
+  load().catch(console.error);
+}));
+load().catch((e) => { document.getElementById("tiles").innerHTML = `<div class="card empty">Could not load: ${esc(e.message)}</div>`; });
+</script>
+</body>
+</html>

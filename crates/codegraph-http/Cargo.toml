@@ -1,0 +1,9 @@
+[package]
+name = "codegraph-http"
+description = "A minimal std-only HTTP/1.1 server for CodeGraph's local viewer and telemetry endpoint"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde_json.workspace = true

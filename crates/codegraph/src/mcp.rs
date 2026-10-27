@@ -182,6 +182,8 @@ pub struct Server {
     tools: Vec<String>,
     watch: bool,
     watchers: HashMap<PathBuf, crate::watch::Watcher>,
+    /// The connecting agent's `clientInfo` name and version.
+    client: Option<(String, String)>,
 }
 
 /// Prefix `text` with a warning naming the files it mentions that changed on
@@ -238,6 +240,7 @@ impl Server {
             tools: enabled_tools(),
             watch,
             watchers: HashMap::new(),
+            client: None,
         }
     }
 
@@ -273,6 +276,15 @@ impl Server {
         let params = msg.get("params").cloned().unwrap_or(Value::Null);
         let result: Result<Value, (i64, String)> = match method {
             "initialize" => {
+                if let Some(info) = params.get("clientInfo") {
+                    let field = |k: &str| {
+                        info.get(k)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string()
+                    };
+                    self.client = Some((field("name"), field("version")));
+                }
                 let requested = params
                     .get("protocolVersion")
                     .and_then(|v| v.as_str())
@@ -314,7 +326,14 @@ impl Server {
                 if !tool_definitions().iter().any(|t| t["name"] == name) {
                     Err((-32602, format!("unknown tool: {name}")))
                 } else {
-                    Ok(self.call_tool(name, &args))
+                    let result = self.call_tool(name, &args);
+                    crate::telemetry::record_usage(
+                        crate::telemetry::UsageKind::McpTool,
+                        name,
+                        result.get("isError").and_then(Value::as_bool) == Some(true),
+                        self.client.as_ref().map(|(n, v)| (n.as_str(), v.as_str())),
+                    );
+                    Ok(result)
                 }
             }
             "resources/list" => Ok(json!({ "resources": [] })),
@@ -573,9 +592,23 @@ pub fn serve_stdio(root: Option<&Path>, watch: bool) -> std::io::Result<()> {
     exit_with_parent();
     let default_root = root.and_then(find_root);
     let mut server = Server::new(default_root, watch);
+    // Telemetry: send completed days now, keep counts on disk every minute.
+    std::thread::spawn(|| {
+        crate::telemetry::flush();
+        for tick in 1u64.. {
+            std::thread::sleep(std::time::Duration::from_secs(60));
+            if tick % 60 == 0 {
+                crate::telemetry::flush();
+            } else {
+                crate::telemetry::persist();
+            }
+        }
+    });
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
-    server.run(stdin.lock(), stdout.lock())
+    let result = server.run(stdin.lock(), stdout.lock());
+    crate::telemetry::persist();
+    result
 }
 
 #[cfg(test)]
