@@ -1,0 +1,37 @@
+[package]
+name = "codegraph"
+description = "Local-first code intelligence: a knowledge graph of your codebase for AI coding agents (library, CLI and MCP server)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "codegraph"
+path = "src/main.rs"
+
+[dependencies]
+codegraph-core.workspace = true
+codegraph-extract.workspace = true
+codegraph-store.workspace = true
+codegraph-telemetry.workspace = true
+codegraph-http.workspace = true
+codegraph-index.workspace = true
+codegraph-resolve.workspace = true
+codegraph-graph.workspace = true
+codegraph-context.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+globset.workspace = true
+notify.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

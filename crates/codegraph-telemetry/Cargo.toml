@@ -1,0 +1,16 @@
+[package]
+name = "codegraph-telemetry"
+description = "CodeGraph's anonymous usage telemetry: the event allowlist shared by client and server, and the self-hosted ingest server with its dashboard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+codegraph-http.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

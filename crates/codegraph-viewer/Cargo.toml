@@ -1,0 +1,12 @@
+[package]
+name = "codegraph-viewer"
+description = "The `codegraph ui` browser viewer: a Rust/WebAssembly app with a minimal JS bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde_json.workspace = true

@@ -1,0 +1,66 @@
+name: Release
+
+# Pushing a vX.Y.Z tag builds the binaries `codegraph upgrade` and the
+# install scripts download: codegraph-<os>-<arch>.tar.gz (.zip on Windows)
+# plus SHA256SUMS.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest, asset: codegraph-linux-x86_64 }
+          - { runner: ubuntu-24.04-arm, asset: codegraph-linux-aarch64 }
+          - { runner: macos-13, asset: codegraph-macos-x86_64 }
+          - { runner: macos-14, asset: codegraph-macos-aarch64 }
+          - { runner: windows-latest, asset: codegraph-windows-x86_64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: cargo build --release --locked -p codegraph
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          tar -czf "dist/${{ matrix.asset }}.tar.gz" -C target/release codegraph
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path target/release/codegraph.exe -DestinationPath "dist/${{ matrix.asset }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum codegraph-* > SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
