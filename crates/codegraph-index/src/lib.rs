@@ -196,6 +196,7 @@ fn build(
             result.nodes.extend(routes.nodes);
             result.edges.extend(routes.edges);
             result.unresolved_references.extend(routes.refs);
+            add_dispatch_sites(&s.path, language, content, &mut result);
             (language, result, generated::is_generated(&s.path, content))
         }
         None => {
@@ -234,6 +235,65 @@ fn build(
         generated,
     };
     (record, result)
+}
+
+/// Record event binds/fires, function-pointer slots and HTTP requests as
+/// references from the innermost symbol around each site.
+fn add_dispatch_sites(
+    path: &str,
+    language: Language,
+    content: &str,
+    result: &mut ExtractionResult,
+) {
+    use codegraph_frameworks::dispatch;
+    if !(language.is_js_family()
+        || matches!(
+            language,
+            Language::Svelte
+                | Language::Vue
+                | Language::Astro
+                | Language::Python
+                | Language::C
+                | Language::Cpp
+                | Language::ObjC
+        ))
+    {
+        return;
+    }
+    let safe = codegraph_frameworks::strip::strip_comments(content, language);
+    let sites = dispatch::sites(language, &safe);
+    if sites.is_empty() {
+        return;
+    }
+    let file_id = format!("file:{path}");
+    for site in sites {
+        // Innermost callable/type covering the line; the file otherwise.
+        let from = result
+            .nodes
+            .iter()
+            .filter(|n| {
+                n.kind != NodeKind::File
+                    && n.kind != NodeKind::Route
+                    && n.start_line <= site.line
+                    && site.line <= n.end_line
+            })
+            .min_by_key(|n| n.end_line - n.start_line)
+            .map(|n| n.id.clone())
+            .unwrap_or_else(|| file_id.clone());
+        result
+            .unresolved_references
+            .push(codegraph_core::UnresolvedReference {
+                from_node_id: from,
+                reference_name: site.name,
+                reference_kind: site.kind,
+                line: site.line,
+                column: 0,
+                file_path: Some(path.to_string()),
+                language: Some(language),
+                candidates: site.handler.into_iter().collect(),
+                row_id: None,
+            });
+    }
 }
 
 const STORE_BATCH: usize = 200;

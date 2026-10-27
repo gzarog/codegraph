@@ -4,6 +4,7 @@
 
 pub mod backend;
 pub mod detect;
+pub mod dispatch;
 pub mod js;
 pub mod strip;
 pub mod util;

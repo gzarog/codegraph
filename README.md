@@ -89,6 +89,13 @@ React/Vue/Angular routers, TanStack Router, Flask, FastAPI, Django, Spring,
 JAX-RS, ASP.NET, Go routers, Axum, Actix, Rocket, Laravel, Symfony, Rails,
 Sinatra, Vapor and Play.
 
+Dispatch the call graph can't see is joined heuristically: an event emit
+(`bus.emit('saved')`, `dispatchEvent(new Event('x'))`) calls the handlers bound
+with `on`/`addEventListener`/`subscribe`; a C function-pointer call
+(`f->ops->read(f)`) calls the functions assigned to that slot (`.read =
+disk_read`); and a `fetch`/`axios`/`requests` call to a literal path calls the
+project route that serves it.
+
 ## Configuration
 
 An optional `codegraph.json` at the project root:

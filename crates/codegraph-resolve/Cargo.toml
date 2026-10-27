@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 codegraph-core.workspace = true
+codegraph-frameworks.workspace = true
 codegraph-store.workspace = true
 ignore.workspace = true
 regex.workspace = true

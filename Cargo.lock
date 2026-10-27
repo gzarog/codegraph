@@ -268,6 +268,7 @@ version = "0.1.0"
 dependencies = [
  "codegraph-core",
  "codegraph-extract",
+ "codegraph-frameworks",
  "codegraph-store",
  "ignore",
  "regex",

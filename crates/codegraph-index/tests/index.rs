@@ -171,3 +171,75 @@ fn framework_routes_link_to_handlers() {
         Some("express,nestjs,fastapi")
     );
 }
+
+#[test]
+fn dynamic_dispatch_is_joined() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(
+        root,
+        "package.json",
+        r#"{"dependencies": {"express": "4"}}"#,
+    );
+    write(
+        root,
+        "src/server.ts",
+        "import express from 'express';\nconst app = express();\napp.get('/users/:id', function getUser(req, res) { res.json({}); });\n",
+    );
+    write(
+        root,
+        "src/listeners.ts",
+        "import { bus } from './bus';\nexport function onSaved(doc) { return doc; }\nbus.on('saved', onSaved);\n",
+    );
+    write(
+        root,
+        "src/client.ts",
+        "import { bus } from './bus';\nexport async function save(id: string) {\n  bus.emit('saved', id);\n  return fetch(`/users/${id}`);\n}\n",
+    );
+    write(
+        root,
+        "src/bus.ts",
+        "export const bus = { on() {}, emit() {} };\n",
+    );
+    write(
+        root,
+        "c/disk.c",
+        "static int disk_read(struct file *f) { return 0; }\nstatic struct file_ops disk_ops = { .read = disk_read };\n",
+    );
+    write(
+        root,
+        "c/vfs.c",
+        "int vfs_read(struct file *f) {\n  return f->ops->read(f);\n}\n",
+    );
+
+    let mut store = Store::open_in_memory().unwrap();
+    let config = ProjectConfig::default();
+    index_project(&mut store, root, &config, &IndexOptions::default()).unwrap();
+    assert!(
+        edge_exists(&store, "save", "onSaved", EdgeKind::Calls),
+        "event emit → listener"
+    );
+    assert!(
+        edge_exists(&store, "vfs_read", "disk_read", EdgeKind::Calls),
+        "fn pointer slot"
+    );
+    assert!(
+        edge_exists(&store, "save", "GET /users/:id", EdgeKind::Calls),
+        "fetch → route"
+    );
+
+    // A new listener in another file joins the existing emit on sync.
+    write(
+        root,
+        "src/audit.ts",
+        "import { bus } from './bus';\nfunction audit(d) {}\nbus.on('saved', audit);\n",
+    );
+    index_project(&mut store, root, &config, &IndexOptions::default()).unwrap();
+    assert!(edge_exists(&store, "save", "audit", EdgeKind::Calls));
+    assert!(
+        edge_exists(&store, "save", "onSaved", EdgeKind::Calls),
+        "kept after re-join"
+    );
+    let pending = store.count_refs(RefStatus::Pending).unwrap();
+    assert_eq!(pending, 0);
+}

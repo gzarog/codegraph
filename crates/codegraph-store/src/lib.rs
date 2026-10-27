@@ -466,6 +466,36 @@ impl Store {
         })
     }
 
+    /// Drop the edges dynamic-dispatch joins produced and reopen the `fire:`
+    /// and `http:` references behind them, so the next resolution re-joins
+    /// them against the current binds and routes.
+    pub fn reopen_dispatch_refs(&mut self) -> Result<usize> {
+        self.transaction(|tx| {
+            tx.execute(
+                "DELETE FROM edges WHERE metadata IS NOT NULL AND json_valid(metadata)
+                   AND json_extract(metadata, '$.synthesizedBy') = 'dispatch'",
+                [],
+            )?;
+            Ok(tx.execute(
+                "UPDATE refs SET status = 'pending', target_id = NULL, target_file = NULL
+                  WHERE status != 'pending'
+                    AND (reference_name LIKE 'fire:%' OR reference_name LIKE 'http:%')",
+                [],
+            )?)
+        })
+    }
+
+    /// `(reference name, target id, file of the bind)` of every resolved
+    /// `bind:` reference.
+    pub fn resolved_binds(&self) -> Result<Vec<(String, String, String)>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT reference_name, target_id, COALESCE(file_path, '') FROM refs
+              WHERE status = 'resolved' AND reference_name LIKE 'bind:%' AND target_id IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// Reopen every failed reference.
     pub fn reopen_all_failed_refs(&self) -> Result<usize> {
         Ok(self.conn.execute(

@@ -1,6 +1,7 @@
 //! Cross-file reference resolution: turns the references extraction found
 //! into edges between symbols.
 
+pub mod dispatch;
 pub mod imports;
 pub mod matcher;
 pub mod modules;
@@ -52,6 +53,8 @@ pub fn resolve_pending(
     root: &Path,
     progress: &dyn Fn(usize, usize),
 ) -> Result<ResolveOutcome, ResolveError> {
+    // Joins depend on binds and routes anywhere in the project: redo them.
+    store.reopen_dispatch_refs()?;
     let total = store.count_refs(codegraph_store::RefStatus::Pending)? as usize;
     let mut outcome = ResolveOutcome::default();
     if total == 0 {
@@ -69,6 +72,9 @@ pub fn resolve_pending(
         after = last.row_id.unwrap_or(after);
         pending.extend(page);
     }
+    let (joins, pending): (Vec<_>, Vec<_>) = pending
+        .into_iter()
+        .partition(|r| dispatch::is_join(&r.reference_name));
     let (supers, rest): (Vec<_>, Vec<_>) = pending.into_iter().partition(|r| {
         matches!(
             r.reference_kind,
@@ -103,8 +109,19 @@ pub fn resolve_pending(
 
     let mut matcher = Matcher::new(&syms, &modules, root);
     for (i, r) in rest.iter().enumerate() {
-        match resolve_one(&mut matcher, &syms, r) {
-            Some(m) => resolved.push((r.row_id.unwrap_or(0), to_edge(r, &syms, &m))),
+        let handler = dispatch::bind_handler(r);
+        let m = match handler {
+            Some(h) => resolve_named(&mut matcher, &syms, r, ReferenceKind::References, h),
+            None => resolve_one(&mut matcher, &syms, r),
+        };
+        match m {
+            Some(m) => {
+                let (mut edge, file) = to_edge(r, &syms, &m);
+                if handler.is_some() {
+                    dispatch::mark_bind(&mut edge, &r.reference_name);
+                }
+                resolved.push((r.row_id.unwrap_or(0), (edge, file)));
+            }
             None => failed.push(r.row_id.unwrap_or(0)),
         }
         if (i + 1) % 2000 == 0 {
@@ -112,13 +129,35 @@ pub fn resolve_pending(
         }
     }
     outcome.attempted += rest.len();
-    outcome.resolved = resolved.len();
-    outcome.failed = failed.len();
     let rows: Vec<(i64, Edge, String)> = resolved
         .into_iter()
         .map(|(id, (e, f))| (id, e, f))
         .collect();
     store.apply_resolutions(&rows, &failed)?;
+
+    // Pass 3: join fires to binds and requests to routes; one site may reach
+    // several targets.
+    let binds = dispatch::Binds::new(store.resolved_binds()?);
+    let routes = dispatch::Routes::new(&syms);
+    let mut rows = Vec::new();
+    let mut extra = Vec::new();
+    let mut join_failed = Vec::new();
+    for r in &joins {
+        let targets = dispatch::targets(r, &binds, &routes, &syms);
+        let mut edges = targets.into_iter().map(|t| dispatch::edge(r, &syms, t));
+        match edges.next() {
+            Some(first) => {
+                rows.push((r.row_id.unwrap_or(0), first.0, first.1));
+                extra.extend(edges.map(|(e, _)| e));
+            }
+            None => join_failed.push(r.row_id.unwrap_or(0)),
+        }
+    }
+    outcome.attempted += joins.len();
+    store.apply_resolutions(&rows, &join_failed)?;
+    store.insert_edges(&extra)?;
+    outcome.resolved = outcome.attempted - failed.len() - join_failed.len();
+    outcome.failed = failed.len() + join_failed.len();
     progress(total, total);
     Ok(outcome)
 }
@@ -128,13 +167,23 @@ fn resolve_one(
     syms: &Symbols,
     r: &UnresolvedReference,
 ) -> Option<matcher::Match> {
+    resolve_named(matcher, syms, r, r.reference_kind, &r.reference_name)
+}
+
+fn resolve_named(
+    matcher: &mut Matcher<'_>,
+    syms: &Symbols,
+    r: &UnresolvedReference,
+    kind: ReferenceKind,
+    name: &str,
+) -> Option<matcher::Match> {
     let from = syms.by_id(&r.from_node_id)?;
     let file = r
         .file_path
         .clone()
         .unwrap_or_else(|| syms.get(from).file.clone());
     let lang = r.language.unwrap_or(syms.get(from).language);
-    let m = matcher.resolve(from, &file, lang, r.reference_kind, &r.reference_name)?;
+    let m = matcher.resolve(from, &file, lang, kind, name)?;
     // Import refs come from the file node; everything else must not point at a file.
     if r.reference_kind != ReferenceKind::Imports
         && syms.get(m.target).kind == codegraph_core::NodeKind::File
