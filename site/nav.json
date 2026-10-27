@@ -1,0 +1,31 @@
+[
+  { "label": "Getting Started", "items": [
+    { "slug": "getting-started/introduction", "label": "Introduction" },
+    { "slug": "getting-started/quickstart", "label": "Quickstart" },
+    { "slug": "getting-started/installation", "label": "Installation" },
+    { "slug": "getting-started/configuration", "label": "Configuration" },
+    { "slug": "getting-started/your-first-graph", "label": "Your First Graph" },
+    { "slug": "getting-started/next-steps", "label": "Next Steps" }
+  ] },
+  { "label": "Core Concepts", "items": [
+    { "slug": "core-concepts/how-it-works", "label": "How It Works" },
+    { "slug": "core-concepts/knowledge-graph", "label": "The Knowledge Graph" },
+    { "slug": "core-concepts/resolution", "label": "Resolution & Frameworks" }
+  ] },
+  { "label": "Guides", "items": [
+    { "slug": "guides/indexing", "label": "Indexing a Project" },
+    { "slug": "guides/viewer", "label": "Reading Your Graph in the Browser" },
+    { "slug": "guides/framework-routes", "label": "Framework Routes" },
+    { "slug": "guides/affected-tests", "label": "Affected Tests in CI" },
+    { "slug": "guides/daemon", "label": "The Shared Daemon" }
+  ] },
+  { "label": "Reference", "items": [
+    { "slug": "reference/mcp-server", "label": "MCP Server" },
+    { "slug": "reference/integrations", "label": "Agent Integrations" },
+    { "slug": "reference/cli", "label": "CLI" },
+    { "slug": "reference/api", "label": "Rust API" },
+    { "slug": "reference/languages", "label": "Languages" },
+    { "slug": "reference/telemetry", "label": "Telemetry" }
+  ] },
+  { "slug": "troubleshooting", "label": "Troubleshooting" }
+]

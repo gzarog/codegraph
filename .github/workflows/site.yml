@@ -1,0 +1,42 @@
+name: Docs site
+
+# Builds the documentation website with the Rust generator in
+# crates/codegraph-site and publishes it to GitHub Pages. Enable Pages with
+# "Source: GitHub Actions" in the repository settings first.
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", "crates/codegraph-site/**", "crates/codegraph-viewer/src/highlight.rs", ".github/workflows/site.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the site
+        run: cargo run --locked -p codegraph-site -- build --out site/dist --base "/${{ github.event.repository.name }}"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

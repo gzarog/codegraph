@@ -1,0 +1,66 @@
+<main class="home">
+  <section class="hero">
+    <p class="kicker">Local-first code intelligence</p>
+    <h1>Give your coding agent a map of the code.</h1>
+    <p class="sub">CodeGraph indexes your project into a knowledge graph of symbols, calls, imports and routes, and hands an agent the exact source it needs in one call instead of a dozen searches. One binary, nothing leaves your machine.</p>
+    <div class="cta">
+      <a class="button primary" href="{{base}}/getting-started/quickstart/">Get started</a>
+      <a class="button" href="{{repo}}" rel="noopener">View on GitHub</a>
+    </div>
+    <div class="install">
+      <div class="code"><button class="copy" type="button" aria-label="Copy command">Copy</button><pre><code>curl -fsSL https://raw.githubusercontent.com/gzarog/codegraph/main/install.sh | sh
+codegraph init &amp;&amp; codegraph install</code></pre></div>
+    </div>
+  </section>
+
+  <section class="diagram" aria-label="How CodeGraph fits in">
+    <svg viewBox="0 0 760 170" role="img" aria-labelledby="dg-title">
+      <title id="dg-title">Your code is parsed into a graph that agents, the CLI and the viewer query</title>
+      <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker></defs>
+      <g class="box"><rect x="10" y="55" width="150" height="60" rx="10"/><text x="85" y="82">Your code</text><text x="85" y="100" class="small">40+ languages</text></g>
+      <path d="M160,85 L290,85" class="ln" marker-end="url(#ar)"/>
+      <text x="225" y="76" class="small">tree-sitter</text>
+      <g class="box hl"><rect x="290" y="45" width="180" height="80" rx="10"/><text x="380" y="78">Knowledge graph</text><text x="380" y="96" class="small">.codegraph/ · SQLite</text></g>
+      <path d="M470,70 C520,70 540,30 590,30" class="ln" marker-end="url(#ar)"/>
+      <path d="M470,85 L590,85" class="ln" marker-end="url(#ar)"/>
+      <path d="M470,100 C520,100 540,140 590,140" class="ln" marker-end="url(#ar)"/>
+      <g class="box"><rect x="590" y="10" width="160" height="40" rx="8"/><text x="670" y="35">Agents · MCP</text></g>
+      <g class="box"><rect x="590" y="65" width="160" height="40" rx="8"/><text x="670" y="90">CLI</text></g>
+      <g class="box"><rect x="590" y="120" width="160" height="40" rx="8"/><text x="670" y="145">Browser viewer</text></g>
+    </svg>
+  </section>
+
+  <section class="features">
+    <article>
+      <h2>One call, the right code</h2>
+      <p><code>codegraph_explore</code> answers "how does login reach the session store" with the source of exactly those symbols, the call path between them, and what depends on them.</p>
+    </article>
+    <article>
+      <h2>Resolved, not guessed</h2>
+      <p>Imports, module paths, receiver types and inheritance turn names into real edges. Name-only matches and dynamic links are marked as such.</p>
+    </article>
+    <article>
+      <h2>Frameworks and dispatch</h2>
+      <p>Routes from 27 frameworks, plus the links code hides: events to listeners, <code>fetch</code> to your own routes, navigations to pages, C function pointers.</p>
+    </article>
+    <article>
+      <h2>Every agent you use</h2>
+      <p><code>codegraph install</code> configures Claude Code, Cursor, Codex, opencode, Gemini CLI, Kiro, Antigravity, Hermes and GitHub Copilot, editing only its own entry.</p>
+    </article>
+    <article>
+      <h2>See it in the browser</h2>
+      <p><code>codegraph ui</code>: symbol pages with callers and blast radius, a module map, screens and the conditions between them, steps from any function.</p>
+    </article>
+    <article>
+      <h2>Always current, always local</h2>
+      <p>A shared daemon watches your files and re-indexes in under a second. The graph is a SQLite file in your project; no keys, no services.</p>
+    </article>
+  </section>
+
+  <section class="next">
+    <a href="{{base}}/getting-started/introduction/"><strong>Introduction</strong><span>What CodeGraph is and why it helps</span></a>
+    <a href="{{base}}/core-concepts/how-it-works/"><strong>How it works</strong><span>From source files to answers</span></a>
+    <a href="{{base}}/reference/mcp-server/"><strong>MCP server</strong><span>The tools agents call</span></a>
+    <a href="{{base}}/reference/cli/"><strong>CLI reference</strong><span>Every command</span></a>
+  </section>
+</main>

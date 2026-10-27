@@ -1,0 +1,15 @@
+[package]
+name = "codegraph-site"
+description = "Static site generator for the CodeGraph documentation website"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+codegraph-http.workspace = true
+codegraph-viewer.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

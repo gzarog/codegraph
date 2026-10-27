@@ -19,6 +19,7 @@ codegraph-context = { path = "crates/codegraph-context" }
 codegraph-frameworks = { path = "crates/codegraph-frameworks" }
 codegraph-telemetry = { path = "crates/codegraph-telemetry" }
 codegraph-http = { path = "crates/codegraph-http" }
+codegraph-viewer = { path = "crates/codegraph-viewer" }
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

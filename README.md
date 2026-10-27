@@ -7,6 +7,8 @@ source with tree-sitter, stores symbols, relationships and files in SQLite
 Everything runs locally; one static binary is the indexer, the CLI and the MCP
 server.
 
+Documentation: <https://gzarog.github.io/codegraph/> (source in [`site/`](site/)).
+
 ## Quick start
 
 ```bash
@@ -147,6 +149,7 @@ data directory.
 | `codegraph-frameworks` | Framework detection, route extraction and dynamic-dispatch sites |
 | `codegraph-http` | Minimal std-only HTTP/1.1 server |
 | `codegraph-telemetry` | Telemetry allowlist, self-hosted ingest server and dashboard |
+| `codegraph-site` | Static generator for the documentation website in `site/` (`cargo run -p codegraph-site -- serve` to preview) |
 | `codegraph-graph` | Callers/callees, impact, paths, type hierarchy, dead code |
 | `codegraph-context` | Relevance ranking, `explore` and task context |
 | `codegraph-viewer` | The `codegraph ui` app: Rust compiled to WebAssembly (virtual DOM, routing, highlighting, graph layout) behind a small JS bridge |

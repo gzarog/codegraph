@@ -460,8 +460,50 @@ const SQLISH: Lang = Lang {
     case_insensitive: true,
 };
 
+const SHELL: Lang = Lang {
+    line: &["#"],
+    block: &[],
+    strings: &[("\"", false), ("'", false)],
+    keywords: &[
+        "if",
+        "then",
+        "else",
+        "fi",
+        "for",
+        "in",
+        "do",
+        "done",
+        "case",
+        "esac",
+        "export",
+        "echo",
+        "cd",
+        "set",
+        "irm",
+        "iex",
+        "curl",
+        "sh",
+        "cargo",
+        "codegraph",
+        "npm",
+        "rustup",
+        "git",
+    ],
+    case_insensitive: false,
+};
+
+const DATA: Lang = Lang {
+    line: &["#"],
+    block: &[],
+    strings: &[("\"", false), ("'", false)],
+    keywords: &["true", "false", "null", "yes", "no"],
+    case_insensitive: false,
+};
+
 fn lang_for(language: &str) -> &'static Lang {
     match language {
+        "bash" | "sh" | "shell" | "console" | "powershell" | "ps1" => &SHELL,
+        "json" | "jsonc" | "toml" | "yaml" | "yml" | "text" | "txt" | "" => &DATA,
         "typescript" | "tsx" | "javascript" | "jsx" | "svelte" | "vue" | "astro" | "arkts" => &JS,
         "python" => &PY,
         "rust" => &RUST,
@@ -634,6 +676,15 @@ pub fn block_html(lines: &[String], first_line: usize, language: &str, mark: &[u
         ));
     }
     out
+}
+
+/// Highlighted HTML for a snippet, one string per line (no numbers).
+pub fn snippet_html(code: &str, language: &str) -> Vec<String> {
+    let lang = lang_for(language);
+    let mut state = State::Code;
+    code.lines()
+        .map(|l| line_html(l, lang, &mut state))
+        .collect()
 }
 
 #[cfg(test)]

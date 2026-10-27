@@ -288,6 +288,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "codegraph-site"
+version = "0.1.0"
+dependencies = [
+ "codegraph-http",
+ "codegraph-viewer",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "codegraph-store"
 version = "0.1.0"
 dependencies = [
