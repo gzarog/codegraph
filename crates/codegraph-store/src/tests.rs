@@ -74,6 +74,110 @@ fn stores_and_reads_back() {
 }
 
 #[test]
+fn reads_fractional_modified_at_from_existing_index() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("codegraph.db");
+    {
+        let mut s = Store::open(&path).unwrap();
+        two_files(&mut s);
+        // Node's stats.mtimeMs can include fractional milliseconds. SQLite
+        // stores those as REAL even though modified_at has INTEGER affinity.
+        s.connection()
+            .execute(
+                "UPDATE files SET modified_at = ? WHERE path = 'a.ts'",
+                [1_793_221_234_567.891_f64],
+            )
+            .unwrap();
+    }
+
+    let s = Store::open(&path).unwrap();
+    assert_eq!(
+        s.file("a.ts").unwrap().unwrap().modified_at,
+        1_793_221_234_567
+    );
+    let files = s.all_files().unwrap();
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0].path, "a.ts");
+    assert_eq!(files[0].modified_at, 1_793_221_234_567);
+    assert_eq!(s.node_count().unwrap(), 4);
+    assert_eq!(s.edge_count().unwrap(), 2);
+    let stored_type: String = s
+        .connection()
+        .query_row(
+            "SELECT typeof(modified_at) FROM files WHERE path = 'a.ts'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored_type, "real", "reading must not rewrite the index");
+}
+
+#[test]
+fn preserves_integer_modified_at_exactly() {
+    let mut s = Store::open_in_memory().unwrap();
+    for modified_at in [
+        i64::MIN,
+        -1,
+        0,
+        1_793_221_234_567,
+        (1_i64 << 53) + 1,
+        i64::MAX,
+    ] {
+        let mut f = file("a.ts");
+        f.modified_at = modified_at;
+        s.store_file(&f, &ExtractionResult::default()).unwrap();
+        assert_eq!(s.file("a.ts").unwrap().unwrap().modified_at, modified_at);
+        assert_eq!(s.all_files().unwrap()[0].modified_at, modified_at);
+    }
+}
+
+#[test]
+fn timestamp_ms_truncates_real_values_within_i64_range() {
+    let s = Store::open_in_memory().unwrap();
+    for (value, expected) in [
+        (0.5, 0),
+        (1.999, 1),
+        (-1.999, -1),
+        (i64::MIN as f64, i64::MIN),
+        (-(i64::MIN as f64) - 1024.0, i64::MAX - 1023),
+    ] {
+        let actual = s
+            .connection()
+            .query_row("SELECT ? AS modified_at", [value], |r| {
+                read_timestamp_ms(r, 0)
+            })
+            .unwrap();
+        assert_eq!(actual, expected, "{value}");
+    }
+}
+
+#[test]
+fn timestamp_ms_rejects_invalid_values() {
+    use rusqlite::types::Value;
+
+    let s = Store::open_in_memory().unwrap();
+    for value in [
+        Value::Null,
+        Value::Text("invalid timestamp".into()),
+        Value::Blob(vec![1, 2, 3]),
+        Value::Real(f64::NAN),
+        Value::Real(f64::INFINITY),
+        Value::Real(f64::NEG_INFINITY),
+        Value::Real(-(i64::MIN as f64)),
+        Value::Real(i64::MIN as f64 - 2048.0),
+    ] {
+        assert!(
+            s.connection()
+                .query_row("SELECT ? AS modified_at", [&value], |r| {
+                    read_timestamp_ms(r, 0)
+                })
+                .is_err(),
+            "accepted invalid timestamp: {value:?}"
+        );
+    }
+}
+
+#[test]
 fn resolution_and_reindex_reopen() {
     let mut s = Store::open_in_memory().unwrap();
     two_files(&mut s);
