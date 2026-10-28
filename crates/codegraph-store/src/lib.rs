@@ -9,6 +9,7 @@ use codegraph_core::{
     Edge, EdgeKind, ExtractionError, ExtractionResult, FileRecord, GraphStats, Language, Node,
     NodeKind, Provenance, ReferenceKind, SearchOptions, SearchResult, UnresolvedReference,
 };
+use rusqlite::types::ValueRef;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row, ToSql, Transaction};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -138,6 +139,19 @@ fn row_to_ref(row: &Row<'_>) -> rusqlite::Result<UnresolvedReference> {
 const FILE_COLUMNS: &str =
     "path, content_hash, language, size, modified_at, indexed_at, node_count, errors, generated";
 
+fn read_timestamp_ms(row: &Row<'_>, index: usize) -> rusqlite::Result<i64> {
+    match row.get_ref(index)? {
+        // Node's stats.mtimeMs can leave REAL values in existing indexes.
+        // Truncate fractional milliseconds, but keep INTEGER reads exact.
+        // The exclusive upper bound is 2^63: i64::MAX rounds up to it as f64.
+        ValueRef::Real(value) if (i64::MIN as f64..-(i64::MIN as f64)).contains(&value) => {
+            Ok(value as i64)
+        }
+        // Preserve errors for non-numeric, non-finite or out-of-range values.
+        _ => row.get(index),
+    }
+}
+
 fn row_to_file(row: &Row<'_>) -> rusqlite::Result<FileRecord> {
     let language: String = row.get(2)?;
     let errors: Option<String> = row.get(7)?;
@@ -146,7 +160,7 @@ fn row_to_file(row: &Row<'_>) -> rusqlite::Result<FileRecord> {
         content_hash: row.get(1)?,
         language: language.parse().unwrap_or(Language::Unknown),
         size: row.get::<_, i64>(3)? as u64,
-        modified_at: row.get(4)?,
+        modified_at: read_timestamp_ms(row, 4)?,
         indexed_at: row.get(5)?,
         node_count: row.get(6)?,
         errors: errors
