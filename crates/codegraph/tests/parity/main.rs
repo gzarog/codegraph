@@ -7,3 +7,4 @@
 mod harness;
 
 mod python;
+mod python_attr;

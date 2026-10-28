@@ -284,28 +284,34 @@ impl<'a> Matcher<'a> {
     }
 
     /// What Python `name` is assigned in the callable `scope`'s body, else
-    /// at the top level of `file`.
-    fn python_bound_value(&mut self, scope: SymId, file: &str, name: &str) -> Option<String> {
-        let re = Regex::new(&format!(
+    /// at the top level of `file`: every value.
+    fn python_bound_values(&mut self, scope: SymId, file: &str, name: &str) -> Vec<String> {
+        let Ok(re) = Regex::new(&format!(
             r"^[ \t]*{}[ \t]*(?::[^=\n]+)?=[ \t]*([^=].*)$",
             regex::escape(name)
-        ))
-        .ok()?;
+        )) else {
+            return Vec::new();
+        };
         let s = self.syms.get(scope);
         if s.kind.is_callable() {
             let (f, start, end) = (s.file.clone(), s.start_line as usize, s.end_line as usize);
             let lines = self.file_lines(&f);
-            for l in lines.iter().skip(start).take(end.saturating_sub(start)) {
-                if let Some(c) = re.captures(l) {
-                    return Some(c[1].trim().to_string());
-                }
+            let local: Vec<String> = lines
+                .iter()
+                .skip(start)
+                .take(end.saturating_sub(start))
+                .filter_map(|l| re.captures(l).map(|c| c[1].trim().to_string()))
+                .collect();
+            if !local.is_empty() {
+                return local;
             }
         }
         let lines = self.file_lines(file);
         lines
             .iter()
             .filter(|l| !l.starts_with([' ', '\t']))
-            .find_map(|l| re.captures(l).map(|c| c[1].trim().to_string()))
+            .filter_map(|l| re.captures(l).map(|c| c[1].trim().to_string()))
+            .collect()
     }
 
     /// Whether Python `file` rebinds `name` anywhere: an assignment (also
@@ -410,27 +416,7 @@ impl<'a> Matcher<'a> {
     /// Whether the body of the callable `scope` assigns `name` (Python:
     /// `name = …`, `for name in`, `with … as name`).
     fn binds_locally(&mut self, scope: SymId, name: &str) -> bool {
-        let s = self.syms.get(scope);
-        if !s.kind.is_callable() {
-            return false;
-        }
-        let (file, start, end) = (s.file.clone(), s.start_line as usize, s.end_line as usize);
-        let lines = self.file_lines(&file);
-        let n = regex::escape(name);
-        let Ok(re) = Regex::new(&format!(
-            r"(?m)^\s*{n}\s*(?::[^=\n]+)?=[^=]|^\s*for\s+(?:[\w\s,(]*\b)?{n}\b[\w\s,)]*\s+in\b|\bas\s+{n}\s*[:,)]"
-        )) else {
-            return false;
-        };
-        // The body, not the `def` line (a parameter is not a local binding).
-        let body = lines
-            .iter()
-            .skip(start)
-            .take(end.saturating_sub(start))
-            .map(String::as_str)
-            .collect::<Vec<_>>()
-            .join("\n");
-        re.is_match(&body)
+        self.python_rebinds(scope, name, None)
     }
 
     /// The type symbol a receiver expression (`repo`, `this.repo`, `$repo`) holds.
@@ -853,7 +839,15 @@ impl<'a> Matcher<'a> {
         // A name the function binds itself (`view = View.as_view()`) is
         // that value, not an imported or module-level symbol of the name.
         if lang == Language::Python && self.binds_locally(from, name) {
-            return None;
+            // A function or class defined in this one is that symbol.
+            let qn = format!("{}::{name}", self.syms.get(from).qualified_name);
+            return self
+                .syms
+                .named(name)
+                .iter()
+                .copied()
+                .find(|&i| self.syms.get(i).qualified_name == qn && self.syms.get(i).file == file)
+                .map(|t| Match::new(t, "local", 0.95));
         }
         // 2. The same file.
         if let Some(t) = self.best_in_file(from, file, name, lang, kind) {
@@ -1161,6 +1155,12 @@ impl<'a> Matcher<'a> {
             });
         }
 
+        if lang == Language::Python && !single {
+            if let Some(r) = self.python_member(from, file, head, tail) {
+                return r;
+            }
+        }
+
         // A module imported inside the function: `import pkg.corpus as CP`.
         if single && lang == Language::Python {
             if let Some(module) = self.local_module_alias(from, root) {
@@ -1387,10 +1387,16 @@ impl<'a> Matcher<'a> {
                 // A name bound to a collection or some call's result is no
                 // project instance; one bound to `Class()` may still reach
                 // a method that class inherits from outside the project.
-                if let Some(value) = self.python_bound_value(from, file, root) {
-                    if !self.python_project_class_call(from, file, &value) {
-                        return None;
-                    }
+                let values = self.python_bound_values(from, file, root);
+                if values.len() > 1
+                    || values
+                        .first()
+                        .is_some_and(|v| !self.python_project_class_call(from, file, v))
+                {
+                    return None;
+                }
+                if let Some(m) = self.python_name_guess(root, tail, file) {
+                    return Some(Match::new(m, "receiver-name", 0.6));
                 }
                 let text = self.file_lines(file).join("\n");
                 methods
@@ -1433,7 +1439,7 @@ impl<'a> Matcher<'a> {
 
 /// A Python view or controller method the framework calls on a request
 /// (`ClientRegistrationView.post`), never through an instance.
-fn python_dispatched_handler(owner: &str, method: &str) -> bool {
+pub(crate) fn python_dispatched_handler(owner: &str, method: &str) -> bool {
     matches!(
         method,
         "get"
@@ -1462,7 +1468,7 @@ fn python_dispatched_handler(owner: &str, method: &str) -> bool {
 }
 
 /// A test double (`_FakeHTTPResponse`, `MockClient`, `StubStore`).
-fn python_test_double(owner: &str) -> bool {
+pub(crate) fn python_test_double(owner: &str) -> bool {
     let o = owner.trim_start_matches('_').to_ascii_lowercase();
     ["fake", "mock", "stub", "dummy"]
         .iter()

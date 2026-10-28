@@ -348,3 +348,21 @@ impl Project {
         self.cg.store().file_node(file).unwrap().unwrap()
     }
 }
+
+impl Project {
+    /// `kind:name@file` of what the first `kind` node named `name` calls.
+    pub fn calls_by_kind(&self, kind: codegraph_core::NodeKind, name: &str) -> Vec<String> {
+        let src = self
+            .cg
+            .store()
+            .all_nodes()
+            .unwrap()
+            .into_iter()
+            .find(|n| n.kind == kind && n.name == name)
+            .unwrap_or_else(|| panic!("no {kind:?} {name}"));
+        self.targets(&src, EdgeKind::Calls)
+            .into_iter()
+            .map(|n| format!("{}:{}@{}", n.kind.as_str(), n.name, n.file_path))
+            .collect()
+    }
+}
