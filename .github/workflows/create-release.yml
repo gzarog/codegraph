@@ -1,8 +1,9 @@
 name: Create release
 
 # Run from the Actions tab with a version: writes it into Cargo.toml and
-# Cargo.lock, commits that to main, tags vX.Y.Z and publishes the release the
-# install scripts and `codegraph upgrade` download.
+# Cargo.lock, commits that to a release/vX.Y.Z branch, tags it and publishes
+# the release the install scripts and `codegraph upgrade` download, then opens
+# a pull request to bring the bump into main (main only takes pull requests).
 on:
   workflow_dispatch:
     inputs:
@@ -13,6 +14,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: create-release
@@ -26,6 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
+      branch: ${{ steps.tag.outputs.branch }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,16 +58,41 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bumped=false
           if ! git diff --quiet; then
             git commit -am "Release v$VERSION"
-            git push origin HEAD:main
+            bumped=true
           fi
           git tag -a "v$VERSION" -m "v$VERSION"
           git push origin "v$VERSION"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          # The release only needs the tag; the branch carries the bump to main.
+          if $bumped; then
+            if git push --force origin "HEAD:refs/heads/release/v$VERSION"; then
+              echo "branch=release/v$VERSION" >> "$GITHUB_OUTPUT"
+            else
+              echo "::warning::Could not push release/v$VERSION; bump Cargo.toml to $VERSION on main in a pull request."
+            fi
+          fi
 
   release:
     needs: tag
     uses: ./.github/workflows/release.yml
     with:
       tag: ${{ needs.tag.outputs.tag }}
+
+  pull-request:
+    needs: [tag, release]
+    if: needs.tag.outputs.branch != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open the version-bump pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.tag.outputs.tag }}
+          BRANCH: ${{ needs.tag.outputs.branch }}
+        run: |
+          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
+            --title "Release $TAG" \
+            --body "Brings the $TAG version bump (Cargo.toml, Cargo.lock) into main. The release is already published." \
+            || echo "::warning::Could not open the pull request (allow it under Settings > Actions > General). Open it by hand: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/main...$BRANCH?expand=1"
