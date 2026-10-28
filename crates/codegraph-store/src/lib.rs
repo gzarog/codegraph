@@ -446,6 +446,79 @@ impl Store {
         })
     }
 
+    /// Python files whose imports name one of `files` (by resolved target,
+    /// or by module name for a file that is gone or new).
+    pub fn python_importers_of(&self, files: &[String]) -> Result<Vec<String>> {
+        let mut out: HashSet<String> = HashSet::new();
+        for chunk in files.chunks(IN_CHUNK) {
+            let stems: Vec<String> = chunk
+                .iter()
+                .map(|f| {
+                    let file = f.rsplit('/').next().unwrap_or(f);
+                    let stem = file.strip_suffix(".py").unwrap_or(file);
+                    if stem == "__init__" {
+                        let dir = f.rsplit('/').nth(1).unwrap_or("");
+                        dir.to_string()
+                    } else {
+                        stem.to_string()
+                    }
+                })
+                .collect();
+            let ph = placeholders(chunk.len());
+            let mut stmt = self.conn.prepare(&format!(
+                "SELECT DISTINCT file_path FROM refs
+                  WHERE language = 'python' AND reference_kind = 'imports'
+                    AND (target_file IN ({ph}) OR name_tail IN ({ph}))"
+            ))?;
+            let rows = stmt.query_map(params_from_iter(chunk.iter().chain(stems.iter())), |r| {
+                r.get::<_, String>(0)
+            })?;
+            for r in rows {
+                out.insert(r?);
+            }
+        }
+        let mut out: Vec<String> = out.into_iter().collect();
+        out.sort();
+        Ok(out)
+    }
+
+    /// Reopen the dotted Python member references of `files` (`x.y.m`),
+    /// resolved or failed, dropping the edges the resolved ones made: their
+    /// answer may come from a file that changed. Returns how many.
+    pub fn reopen_python_member_refs(&mut self, files: &[String]) -> Result<usize> {
+        self.transaction(|tx| {
+            let mut n = 0;
+            for chunk in files.chunks(IN_CHUNK) {
+                let ph = placeholders(chunk.len());
+                let filter = format!(
+                    "language = 'python' AND file_path IN ({ph}) AND status != 'pending'
+                     AND reference_kind IN ('calls', 'references', 'function_ref', 'instantiates')
+                     AND instr(reference_name, '.') > 0"
+                );
+                tx.execute(
+                    &format!(
+                        "DELETE FROM edges WHERE rowid IN (
+                           SELECT e.rowid FROM edges e JOIN refs r
+                             ON e.source = r.from_node_id AND e.target = r.target_id AND e.line = r.line
+                          WHERE r.status = 'resolved' AND {}
+                            AND e.kind IN ('calls', 'references', 'instantiates'))",
+                        filter.replace("language", "r.language").replace("file_path", "r.file_path")
+                            .replace("status !=", "r.status !=").replace("reference_kind", "r.reference_kind")
+                            .replace("instr(reference_name", "instr(r.reference_name")
+                    ),
+                    params_from_iter(chunk.iter()),
+                )?;
+                n += tx.execute(
+                    &format!(
+                        "UPDATE refs SET status = 'pending', target_id = NULL, target_file = NULL WHERE {filter}"
+                    ),
+                    params_from_iter(chunk.iter()),
+                )?;
+            }
+            Ok(n)
+        })
+    }
+
     /// Reopen failed references whose name or tail matches one of `names`
     /// (new symbols appeared that might satisfy them). Returns how many.
     pub fn reopen_failed_refs_named(&mut self, names: &HashSet<String>) -> Result<usize> {

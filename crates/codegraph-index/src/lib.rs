@@ -457,6 +457,38 @@ pub fn index_project(
         if !new_names.is_empty() {
             store.reopen_failed_refs_named(&new_names)?;
         }
+        // A Python receiver's type may come from a factory or base class in
+        // a file that changed: re-resolve member calls in its importers.
+        if !force {
+            let changed: Vec<String> = report
+                .files_changed
+                .iter()
+                .chain(&report.files_added)
+                .chain(&report.files_removed)
+                .filter(|f| f.ends_with(".py"))
+                .cloned()
+                .collect();
+            if !changed.is_empty() {
+                let mut seen: HashSet<String> = changed.iter().cloned().collect();
+                let mut frontier = changed;
+                let mut importers = Vec::new();
+                for _ in 0..4 {
+                    let next: Vec<String> = store
+                        .python_importers_of(&frontier)?
+                        .into_iter()
+                        .filter(|f| seen.insert(f.clone()))
+                        .collect();
+                    if next.is_empty() || seen.len() > 500 {
+                        break;
+                    }
+                    importers.extend(next.iter().cloned());
+                    frontier = next;
+                }
+                if !importers.is_empty() {
+                    store.reopen_python_member_refs(&importers)?;
+                }
+            }
+        }
         let resolve_progress =
             |done: usize, total: usize| progress(Progress::Resolving { done, total });
         let timings = std::env::var_os("CODEGRAPH_TIMINGS").is_some();

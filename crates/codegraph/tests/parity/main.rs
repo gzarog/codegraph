@@ -8,3 +8,5 @@ mod harness;
 
 mod python;
 mod python_attr;
+// python_attr_types.rs: ported, not yet passing (factory and base-class
+// attribute types, sync re-typing); registered once it does.
