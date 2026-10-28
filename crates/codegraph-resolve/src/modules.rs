@@ -410,7 +410,15 @@ impl Modules {
             })
             .collect();
         found.sort_by_key(|f| std::cmp::Reverse(common_prefix_len(f, from)));
-        found.first().map(|s| s.to_string())
+        if let Some(f) = found.first() {
+            return Some(f.to_string());
+        }
+        // The indexed root is itself a package, imported by its own name
+        // (`from mypkg.tasks import runner` inside mypkg/).
+        match rel.split_once('/') {
+            Some((_, rest)) if syms.file_exists("__init__.py") => try_module(rest),
+            _ => None,
+        }
     }
 
     fn resolve_go(&self, spec: &str) -> Vec<String> {

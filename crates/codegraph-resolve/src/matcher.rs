@@ -184,6 +184,8 @@ pub struct Matcher<'a> {
     lines: HashMap<String, Rc<Vec<String>>>,
     /// Variable → declared type name, per scope symbol.
     scope_types: HashMap<SymId, Rc<HashMap<String, String>>>,
+    /// Where the reference being resolved is written (line, column).
+    pub at: Option<(u32, u32)>,
 }
 
 impl<'a> Matcher<'a> {
@@ -196,6 +198,7 @@ impl<'a> Matcher<'a> {
             defaults: HashMap::new(),
             lines: HashMap::new(),
             scope_types: HashMap::new(),
+            at: None,
         }
     }
 
@@ -227,6 +230,112 @@ impl<'a> Matcher<'a> {
         let rc = Rc::new(declared_types(&text));
         self.scope_types.insert(scope, rc.clone());
         rc
+    }
+
+    /// Whether the Python method `m` is a `@property` getter.
+    fn python_getter(&mut self, m: SymId) -> bool {
+        let s = self.syms.get(m);
+        let (file, start) = (s.file.clone(), s.start_line as usize);
+        let lines = self.file_lines(&file);
+        lines
+            .iter()
+            .take(start.saturating_sub(1))
+            .rev()
+            .map(|l| l.trim())
+            .take_while(|l| l.starts_with('@'))
+            .any(|l| {
+                let d = l.trim_start_matches('@');
+                let d = d.rsplit('.').next().unwrap_or(d);
+                d == "property" || d == "cached_property"
+            })
+    }
+
+    /// Whether `name` is a parameter of the Python callable `scope`.
+    fn python_param(&mut self, scope: SymId, name: &str) -> bool {
+        let s = self.syms.get(scope);
+        if !s.kind.is_callable() {
+            return false;
+        }
+        let (file, start) = (s.file.clone(), s.start_line as usize);
+        let lines = self.file_lines(&file);
+        let mut header = String::new();
+        for l in lines.iter().skip(start.saturating_sub(1)).take(12) {
+            header.push_str(l);
+            header.push('\n');
+            if l.trim_end().ends_with(':') {
+                break;
+            }
+        }
+        let Some(open) = header.find('(') else {
+            return false;
+        };
+        let params = &header[open + 1..header.rfind(')').unwrap_or(header.len())];
+        let Ok(re) = Regex::new(&format!(
+            r"(?:^|[(,*\s]){}\s*(?:[:=,)]|$)",
+            regex::escape(name)
+        )) else {
+            return false;
+        };
+        re.is_match(params)
+    }
+
+    /// What Python `name` is assigned in the callable `scope`'s body, else
+    /// at the top level of `file`.
+    fn python_bound_value(&mut self, scope: SymId, file: &str, name: &str) -> Option<String> {
+        let re = Regex::new(&format!(
+            r"^[ \t]*{}[ \t]*(?::[^=\n]+)?=[ \t]*([^=].*)$",
+            regex::escape(name)
+        ))
+        .ok()?;
+        let s = self.syms.get(scope);
+        if s.kind.is_callable() {
+            let (f, start, end) = (s.file.clone(), s.start_line as usize, s.end_line as usize);
+            let lines = self.file_lines(&f);
+            for l in lines.iter().skip(start).take(end.saturating_sub(start)) {
+                if let Some(c) = re.captures(l) {
+                    return Some(c[1].trim().to_string());
+                }
+            }
+        }
+        let lines = self.file_lines(file);
+        lines
+            .iter()
+            .filter(|l| !l.starts_with([' ', '\t']))
+            .find_map(|l| re.captures(l).map(|c| c[1].trim().to_string()))
+    }
+
+    /// Whether Python `file` rebinds `name` anywhere: an assignment (also
+    /// as a tuple target), a loop variable, a `global`, a class or def.
+    fn rebinds(&mut self, file: &str, name: &str) -> bool {
+        let n = regex::escape(name);
+        let Ok(re) = Regex::new(&format!(
+            r"(?m)^[ \t]*(?:{n}[ \t]*(?:,[^=\n]*)?=[^=]|for[ \t]+{n}[ \t]+in\b|global[ \t]+{n}\b|(?:class|def)[ \t]+{n}\b)"
+        )) else {
+            return false;
+        };
+        self.file_lines(file).iter().any(|l| re.is_match(l))
+    }
+
+    /// Whether the bare call `name` at the current position is written on
+    /// the instance (`self.name(…)` / `cls.name(…)`): Python extraction
+    /// drops the receiver. None when the text does not show the call.
+    fn python_self_call(&mut self, file: &str, name: &str) -> Option<bool> {
+        let (line, column) = self.at?;
+        let lines = self.file_lines(file);
+        let text = lines.get((line as usize).checked_sub(1)?)?;
+        let col = text
+            .char_indices()
+            .nth(column as usize)
+            .map_or(text.len(), |(i, _)| i);
+        let rest = &text[col..];
+        for recv in ["self.", "cls."] {
+            if rest.starts_with(recv) {
+                return Some(rest[recv.len()..].starts_with(name));
+            }
+        }
+        let at = rest.find(name).map(|i| col + i)?;
+        let before = text[..at].trim_end();
+        Some(before.ends_with("self.") || before.ends_with("cls."))
     }
 
     /// The module `alias` names when the callable `scope` (or one around it)
@@ -350,6 +459,22 @@ impl<'a> Matcher<'a> {
                         .find(|&i| self.syms.get(i).qualified_name == o)
                 });
             }
+        }
+        if ty.is_none()
+            && !in_class
+            && lang == Language::Python
+            && !self.python_param(from, &var)
+            && !self.binds_locally(from, &var)
+        {
+            // A module-level assignment (`subprocess = Fake()`) the function
+            // does not shadow.
+            let lines = self.file_lines(file);
+            let top: Vec<&str> = lines
+                .iter()
+                .map(String::as_str)
+                .filter(|l| !l.starts_with([' ', '\t']))
+                .collect();
+            ty = declared_types(&top.join("\n")).get(&var).cloned();
         }
         if ty.is_none() {
             // A field of the enclosing type.
@@ -679,6 +804,21 @@ impl<'a> Matcher<'a> {
         kind: ReferenceKind,
         name: &str,
     ) -> Option<Match> {
+        // Python has no implicit self: `self.get_ip()` is the instance's
+        // method (never a same-named import), a bare `get_ip()` never is.
+        if lang == Language::Python && kind == ReferenceKind::Calls {
+            match self.python_self_call(file, name) {
+                Some(true) => {
+                    let ty = self.enclosing_type(from)?;
+                    return self
+                        .syms
+                        .member_named(ty, name, lang)
+                        .map(|m| Match::new(m, "member", 0.9));
+                }
+                Some(false) => return self.resolve_unowned(from, file, lang, kind, name),
+                None => {}
+            }
+        }
         // 1. A member of the enclosing type. Extraction drops `this.`/`self.`
         //    receivers, so this covers explicit-receiver languages too.
         if !matches!(
@@ -693,6 +833,19 @@ impl<'a> Matcher<'a> {
                 }
             }
         }
+        self.resolve_unowned(from, file, lang, kind, name)
+    }
+
+    /// Steps 2–5 of [`Self::resolve_simple`]: a name that is not a member
+    /// of the enclosing type.
+    fn resolve_unowned(
+        &mut self,
+        from: SymId,
+        file: &str,
+        lang: Language,
+        kind: ReferenceKind,
+        name: &str,
+    ) -> Option<Match> {
         // 2. The same file.
         if let Some(t) = self.best_in_file(from, file, name, lang, kind) {
             return Some(Match::new(t, "same-file", 0.9));
@@ -722,6 +875,24 @@ impl<'a> Matcher<'a> {
         // that value, not some other file's function of the name.
         if lang == Language::Python && self.binds_locally(from, name) {
             return None;
+        }
+        // A parameter is the argument passed, or a pytest fixture a
+        // conftest.py above the file declares.
+        if lang == Language::Python && self.python_param(from, name) {
+            return self
+                .syms
+                .named_for(name, lang)
+                .iter()
+                .copied()
+                .filter(|&i| {
+                    let s = self.syms.get(i);
+                    s.kind == NodeKind::Function
+                        && s.owner().is_none()
+                        && s.file.rsplit('/').next() == Some("conftest.py")
+                        && file.starts_with(dir_of(&s.file))
+                })
+                .max_by_key(|&i| self.syms.get(i).file.len())
+                .map(|t| Match::new(t, "fixture", 0.85));
         }
         // 4. The same package / namespace, or a wildcard import.
         if let Some(t) = self.same_scope(file, lang, kind, name, &bindings, from) {
@@ -960,6 +1131,7 @@ impl<'a> Matcher<'a> {
 
         // A qualified name defined as such (`Foo::bar` with qualified_name `Foo::bar`).
         let qualified = full.replace(['.', '\\'], "::").replace("->", "::");
+        let from_qn = self.syms.get(from).qualified_name.clone();
         let qhits: Vec<SymId> = self
             .syms
             .named_for(tail, lang)
@@ -969,7 +1141,14 @@ impl<'a> Matcher<'a> {
                 let s = self.syms.get(i);
                 same_family(s.language, lang)
                     && (s.qualified_name == qualified
-                        || s.qualified_name.ends_with(&format!("::{qualified}")))
+                        || s.qualified_name.ends_with(&format!("::{qualified}"))
+                            // A Python class nested in a function is only
+                            // visible inside it.
+                            && (lang != Language::Python || {
+                                let scope = &s.qualified_name
+                                    [..s.qualified_name.len() - qualified.len() - 2];
+                                from_qn == scope || from_qn.starts_with(&format!("{scope}::"))
+                            }))
             })
             .collect();
         if let Some(m) = self.pick_closest(&qhits, file, kind, "qualified", "qualified") {
@@ -1047,6 +1226,17 @@ impl<'a> Matcher<'a> {
                         }
                     }
                 }
+                // A module from outside the project (`import subprocess`)
+                // has no project methods, unless the file rebinds the name.
+                if lang == Language::Python
+                    && self
+                        .modules
+                        .resolve(self.syms, file, lang, &b.module)
+                        .is_empty()
+                    && !self.rebinds(file, root)
+                {
+                    return None;
+                }
             }
         }
 
@@ -1069,6 +1259,11 @@ impl<'a> Matcher<'a> {
         // A variable, parameter or field whose declared type we can read.
         if let Some(ty) = self.infer_receiver_type(from, file, lang, head) {
             if let Some(m) = self.syms.member_named(ty, tail, lang) {
+                // `obj.prop()` calls what the getter returns, not the getter.
+                if lang == Language::Python && kind == ReferenceKind::Calls && self.python_getter(m)
+                {
+                    return None;
+                }
                 return Some(Match::new(m, "receiver-type", 0.85));
             }
         }
@@ -1149,11 +1344,39 @@ impl<'a> Matcher<'a> {
                         && !s.local
                 })
                 .collect();
-            // Python receivers are dynamic: `User.objects.get` or
-            // `self.client.login` name no project method by name alone.
-            if lang == Language::Python {
-                return None;
-            }
+            // Python receivers are dynamic: an attribute chain
+            // (`User.objects.get`, `self.client.login`) names no project
+            // method by name alone; a plain name may, but never a handler
+            // the framework dispatches to or a test double the file never
+            // mentions.
+            let methods = if lang == Language::Python {
+                if root.len() != head.len() {
+                    return None;
+                }
+                // A name bound to a collection or some call's result is no
+                // project instance; one bound to `Class()` may still reach
+                // a method that class inherits from outside the project.
+                if let Some(value) = self.python_bound_value(from, file, root) {
+                    static CTOR: LazyLock<Regex> =
+                        LazyLock::new(|| Regex::new(r"^[A-Z]\w*\s*\(").unwrap());
+                    if !CTOR.is_match(&value) {
+                        return None;
+                    }
+                }
+                let text = self.file_lines(file).join("\n");
+                methods
+                    .into_iter()
+                    .filter(|&i| {
+                        let s = self.syms.get(i);
+                        let owner = s.owner().unwrap_or("");
+                        let owner = owner.rsplit("::").next().unwrap_or(owner);
+                        !(python_dispatched_handler(owner, &s.name)
+                            || python_test_double(owner) && !text.contains(owner))
+                    })
+                    .collect()
+            } else {
+                methods
+            };
             // Without the receiver's type, only a name no other type shares is safe.
             let owners: std::collections::HashSet<&str> = methods
                 .iter()
@@ -1179,6 +1402,44 @@ impl<'a> Matcher<'a> {
     }
 }
 
+/// A Python view or controller method the framework calls on a request
+/// (`ClientRegistrationView.post`), never through an instance.
+fn python_dispatched_handler(owner: &str, method: &str) -> bool {
+    matches!(
+        method,
+        "get"
+            | "post"
+            | "put"
+            | "patch"
+            | "delete"
+            | "head"
+            | "options"
+            | "update"
+            | "create"
+            | "list"
+            | "retrieve"
+            | "destroy"
+            | "partial_update"
+    ) && [
+        "View",
+        "ViewSet",
+        "Controller",
+        "Handler",
+        "Resource",
+        "Endpoint",
+    ]
+    .iter()
+    .any(|s| owner.ends_with(s))
+}
+
+/// A test double (`_FakeHTTPResponse`, `MockClient`, `StubStore`).
+fn python_test_double(owner: &str) -> bool {
+    let o = owner.trim_start_matches('_').to_ascii_lowercase();
+    ["fake", "mock", "stub", "dummy"]
+        .iter()
+        .any(|p| o.starts_with(p))
+}
+
 /// `(name, type)` declaration shapes across languages. Each pattern's
 /// `name`/`ty` groups pick out a variable and the type it holds.
 static DECLARATIONS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
@@ -1187,6 +1448,8 @@ static DECLARATIONS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
         r"\b(?P<name>[a-z_]\w*)\s*:=\s*(?:\w+\.)?New(?P<ty>[A-Z]\w*)\s*\(",
         // const x = new Foo(…) / let x = Foo::new(…) / x = Foo(…) / $x = new Foo / var x = Foo{…}
         r"(?:\b(?:const|let|var|val|auto|my)\s+(?:mut\s+)?)?\$?(?P<name>[a-z_]\w*)\s*:?=\s*(?:new\s+|await\s+|&)?(?P<ty>[A-Z][\w]*)(?:<[^>()]*>)?(?:::\w+)?\s*[({]",
+        // Django: site = Site.objects.create(…) / .get(…) / .first()
+        r"\b(?P<name>[a-z_]\w*)\s*=\s*(?P<ty>[A-Z]\w*)\.objects\.(?:create|get|first|last|latest|earliest)\(",
         // x: Foo / x: &mut Foo / x: Foo? (TS, Rust, Kotlin, Swift, Python, Scala, Dart params and fields)
         // A Python forward reference is quoted: `o: "Alpha"`.
         r#"\b(?P<name>[a-z_]\w*)\s*[?!]?:\s*["']?(?:&\s*(?:mut\s+)?|\*)?(?P<ty>[A-Z][\w.]*)"#,

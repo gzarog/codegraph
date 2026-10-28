@@ -209,7 +209,10 @@ fn resolve_named(
         .clone()
         .unwrap_or_else(|| syms.get(from).file.clone());
     let lang = r.language.unwrap_or(syms.get(from).language);
-    let m = matcher.resolve(from, &file, lang, kind, name)?;
+    matcher.at = Some((r.line, r.column));
+    let m = matcher.resolve(from, &file, lang, kind, name);
+    matcher.at = None;
+    let m = m?;
     // Import refs come from the file node; everything else must not point at a file.
     if r.reference_kind != ReferenceKind::Imports
         && syms.get(m.target).kind == codegraph_core::NodeKind::File

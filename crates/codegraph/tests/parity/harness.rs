@@ -204,3 +204,96 @@ impl Project {
             .collect()
     }
 }
+
+impl Project {
+    /// `source -> target (target file)` of every call edge, sorted.
+    pub fn all_calls(&self) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .cg
+            .store()
+            .edges_of_kind(EdgeKind::Calls)
+            .unwrap()
+            .iter()
+            .filter_map(|e| Some((self.node(&e.source)?, self.node(&e.target)?)))
+            .map(|(s, t)| {
+                format!(
+                    "{} -> {} ({})",
+                    s.qualified_name, t.qualified_name, t.file_path
+                )
+            })
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// `kind:qualified` of what the function `name` calls, sorted.
+    pub fn call_kinds(&self, name: &str) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .targets(&self.function(name), EdgeKind::Calls)
+            .iter()
+            .map(|n| format!("{}:{}", n.kind.as_str(), n.qualified_name))
+            .collect();
+        out.sort();
+        out
+    }
+}
+
+impl Project {
+    /// `qualified@file` of the function `name`'s call targets, with
+    /// `instantiates ` before a constructed class, sorted.
+    pub fn calls_and_news(&self, name: &str) -> Vec<String> {
+        let f = self
+            .cg
+            .store()
+            .all_nodes()
+            .unwrap()
+            .into_iter()
+            .find(|n| n.kind == codegraph_core::NodeKind::Function && n.name == name)
+            .unwrap_or_else(|| panic!("no function {name}"));
+        let mut out: Vec<String> = self
+            .cg
+            .store()
+            .outgoing_edges(&f.id, &[EdgeKind::Calls, EdgeKind::Instantiates])
+            .unwrap()
+            .iter()
+            .filter_map(|e| Some((e.kind, self.node(&e.target)?)))
+            .map(|(k, n)| {
+                let pre = if k == EdgeKind::Calls {
+                    ""
+                } else {
+                    "instantiates "
+                };
+                format!("{pre}{}@{}", n.qualified_name, n.file_path)
+            })
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// `file:qualified` of each references/calls target out of `file`'s
+    /// nodes (only `qualified`'s, when given).
+    pub fn refs_from(&self, file: &str, qualified: Option<&str>) -> Vec<String> {
+        let ids: Vec<String> = self
+            .nodes_in(file)
+            .into_iter()
+            .filter(|n| qualified.is_none_or(|q| n.qualified_name == q))
+            .map(|n| n.id)
+            .collect();
+        self.cg
+            .store()
+            .outgoing_edges_from(&ids, &[EdgeKind::References, EdgeKind::Calls])
+            .unwrap()
+            .iter()
+            .filter_map(|e| self.node(&e.target))
+            .map(|t| format!("{}:{}", t.file_path, t.qualified_name))
+            .collect()
+    }
+
+    /// Ids of what `node` calls.
+    pub fn callee_ids(&self, node: &Node) -> Vec<String> {
+        self.targets(node, EdgeKind::Calls)
+            .into_iter()
+            .map(|n| n.id)
+            .collect()
+    }
+}
