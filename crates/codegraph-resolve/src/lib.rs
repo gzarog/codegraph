@@ -5,6 +5,7 @@ pub mod dispatch;
 pub mod imports;
 pub mod matcher;
 pub mod modules;
+mod python_modules;
 pub mod symbols;
 pub mod synth;
 

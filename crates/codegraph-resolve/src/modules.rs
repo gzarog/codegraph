@@ -59,6 +59,7 @@ pub struct Modules {
     dart_packages: HashMap<String, String>,
     /// directory → files directly in it.
     dir_files: HashMap<String, Vec<String>>,
+    python: crate::python_modules::PythonModules,
 }
 
 fn read(root: &Path, rel: &str) -> Option<String> {
@@ -118,6 +119,7 @@ impl Modules {
             rust_crates: Vec::new(),
             dart_packages: HashMap::new(),
             dir_files: HashMap::new(),
+            python: crate::python_modules::PythonModules::build(root, syms.files()),
         };
         for f in syms.files() {
             m.dir_files
@@ -257,7 +259,7 @@ impl Modules {
             TypeScript | JavaScript | Tsx | Jsx | ArkTs | Svelte | Vue | Astro => {
                 self.resolve_js(syms, from, spec).into_iter().collect()
             }
-            Python => self.resolve_python(syms, from, spec).into_iter().collect(),
+            Python => self.resolve_python(from, spec).into_iter().collect(),
             Go => self.resolve_go(spec),
             Rust => self.resolve_rust(syms, from, spec).into_iter().collect(),
             C | Cpp | ObjC => self.resolve_relative_or_suffix(syms, from, spec, &[""]),
@@ -363,62 +365,52 @@ impl Modules {
         None
     }
 
-    fn resolve_python(&self, syms: &Symbols, from: &str, spec: &str) -> Option<String> {
-        let try_module = |base: &str| -> Option<String> {
-            for cand in [
-                format!("{base}.py"),
-                format!("{base}/__init__.py"),
-                format!("{base}.pyi"),
-            ] {
-                if let Some(p) = normalize(&cand) {
-                    if syms.file_exists(&p) {
-                        return Some(p);
-                    }
-                }
-            }
-            None
-        };
-        let dots = spec.chars().take_while(|&c| c == '.').count();
-        if dots > 0 {
-            let mut dir = dir_of(from).to_string();
-            for _ in 1..dots {
-                dir = dir_of(&dir).to_string();
-            }
-            let rest = spec[dots..].replace('.', "/");
-            return if rest.is_empty() {
-                try_module(&join(&dir, "__init__"))
-            } else {
-                try_module(&join(&dir, &rest))
-            };
-        }
-        let rel = spec.replace('.', "/");
-        // Absolute import: from the project root, a `src/` layout, or any
-        // directory holding the package (closest to the importing file wins).
-        if let Some(hit) = try_module(&rel).or_else(|| try_module(&format!("src/{rel}"))) {
-            return Some(hit);
-        }
-        let suffixes = [format!("/{rel}.py"), format!("/{rel}/__init__.py")];
-        let mut found: Vec<&String> = syms
-            .files()
-            .filter(|f| {
-                suffixes.iter().any(|s| {
-                    // The directory above the module is a source root, not a
-                    // package: `backends/jinja2.py` is `backends.jinja2`.
-                    f.strip_suffix(s.as_str())
-                        .is_some_and(|root| !syms.file_exists(&format!("{root}/__init__.py")))
+    /// The file the Python module `a.b.c` may be from some import root:
+    /// `a/b/c.py`, else `b/c.py`, else `c.py` (or a package of that path),
+    /// when one file is.
+    pub fn python_module_any_root(&self, syms: &Symbols, module: &str) -> Option<String> {
+        let parts: Vec<&str> = module.split('.').collect();
+        for i in 0..parts.len() {
+            let rel = parts[i..].join("/");
+            let (file, pkg) = (format!("{rel}.py"), format!("{rel}/__init__.py"));
+            let hits: Vec<&String> = syms
+                .files()
+                .filter(|f| {
+                    *f == &file
+                        || *f == &pkg
+                        || f.ends_with(&format!("/{file}"))
+                        || f.ends_with(&format!("/{pkg}"))
                 })
+                .collect();
+            if !hits.is_empty() {
+                return (hits.len() == 1).then(|| hits[0].clone());
+            }
+        }
+        None
+    }
+
+    /// Whether the Python module `a.b.c` may be the project's from some
+    /// import root. Erring toward "project" only leaves a call to the name
+    /// strategies.
+    pub fn python_project_module_any_root(&self, syms: &Symbols, module: &str) -> bool {
+        if module.starts_with('.') {
+            return true;
+        }
+        let parts: Vec<&str> = module.split('.').collect();
+        (0..parts.len()).any(|i| {
+            let rel = parts[i..].join("/");
+            let (file, pkg) = (format!("{rel}.py"), format!("{rel}/__init__.py"));
+            syms.files().any(|f| {
+                f == &file
+                    || f == &pkg
+                    || f.ends_with(&format!("/{file}"))
+                    || f.ends_with(&format!("/{pkg}"))
             })
-            .collect();
-        found.sort_by_key(|f| std::cmp::Reverse(common_prefix_len(f, from)));
-        if let Some(f) = found.first() {
-            return Some(f.to_string());
-        }
-        // The indexed root is itself a package, imported by its own name
-        // (`from mypkg.tasks import runner` inside mypkg/).
-        match rel.split_once('/') {
-            Some((_, rest)) if syms.file_exists("__init__.py") => try_module(rest),
-            _ => None,
-        }
+        })
+    }
+
+    fn resolve_python(&self, from: &str, spec: &str) -> Option<String> {
+        self.python.resolve(spec, from)
     }
 
     fn resolve_go(&self, spec: &str) -> Vec<String> {

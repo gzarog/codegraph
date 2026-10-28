@@ -408,7 +408,11 @@ pub fn parse_import(language: Language, statement: &str, name: &str) -> Vec<Bind
     use Language::*;
     let mut out = match language {
         TypeScript | JavaScript | Tsx | Jsx | ArkTs | Svelte | Vue | Astro => parse_js(statement),
-        Python => parse_python(statement),
+        Python => {
+            // `from \<newline> loader import X`: a continuation is a space.
+            let joined = statement.replace("\\\r\n", " ").replace("\\\n", " ");
+            parse_python(&joined)
+        }
         Go => parse_go(statement),
         Java | Kotlin | Scala => parse_jvm(statement),
         CSharp => parse_csharp(statement),

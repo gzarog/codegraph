@@ -383,13 +383,22 @@ impl<'a> Matcher<'a> {
             return None;
         }
         let (file, line, name) = (s.file.clone(), s.start_line as usize, s.name.clone());
-        let text = self.file_lines(&file).get(line.checked_sub(1)?)?.clone();
-        let re = Regex::new(&format!(
-            r"^\s*{}\s*(?::[^=]+)?=\s*([A-Z]\w*)\s*\(",
-            regex::escape(&name)
-        ))
-        .ok()?;
-        let ty = re.captures(&text)?.get(1)?.as_str().to_string();
+        let lines = self.file_lines(&file);
+        let n = regex::escape(&name);
+        let re = Regex::new(&format!(r"^\s*{n}\s*(?::[^=]+)?=\s*([A-Z]\w*)\s*\(")).ok()?;
+        let ty = match lines.get(line.checked_sub(1)?).and_then(|t| re.captures(t)) {
+            Some(c) => c[1].to_string(),
+            // `conn = None`, set by a function that declares it global.
+            None => {
+                let global = Regex::new(&format!(r"^\s+global\s+(?:[\w\s,]*,\s*)?{n}\b")).ok()?;
+                if !lines.iter().any(|l| global.is_match(l)) {
+                    return None;
+                }
+                lines
+                    .iter()
+                    .find_map(|l| re.captures(l).map(|c| c[1].to_string()))?
+            }
+        };
         let m = self.resolve_simple(var, &file, lang, ReferenceKind::Instantiates, &ty)?;
         matches!(self.syms.get(m.target).kind, NodeKind::Class).then_some(m.target)
     }
@@ -863,10 +872,9 @@ impl<'a> Matcher<'a> {
             // Imported from an external package (`from django.shortcuts
             // import render`): not a project symbol of that name.
             if lang == Language::Python
-                && self
+                && !self
                     .modules
-                    .resolve(self.syms, file, lang, &b.module)
-                    .is_empty()
+                    .python_project_module_any_root(self.syms, &b.module)
             {
                 return None;
             }
@@ -1171,6 +1179,26 @@ impl<'a> Matcher<'a> {
 
         // An import binding: a module namespace or an imported type.
         let bindings = self.bindings(file);
+        // `import settings` then `settings.conn.fetch`: a module global's
+        // instance method.
+        if !single && lang == Language::Python {
+            if let Some((module, var)) = head.split_once('.').filter(|(_, v)| !v.contains('.')) {
+                if let Some(b) = bindings
+                    .iter()
+                    .find(|b| b.imported.is_none() && b.local == module)
+                    .cloned()
+                {
+                    let files = self.modules.resolve(self.syms, file, lang, &b.module);
+                    let found = files.iter().find_map(|f| self.find_export(f, var, lang, 1));
+                    if let Some(v) = found {
+                        return self
+                            .instance_type(v, lang)
+                            .and_then(|ty| self.syms.member_named(ty, tail, lang))
+                            .map(|m| Match::new(m, "module-instance", 0.85));
+                    }
+                }
+            }
+        }
         // `import app.helpers` binds the dotted path: `app.helpers.slugify()`.
         if !single && lang == Language::Python {
             if let Some(b) = bindings
@@ -1204,8 +1232,17 @@ impl<'a> Matcher<'a> {
                             return None;
                         }
                     }
-                    Some(_) => {
-                        if let Some(t) = self.resolve_binding(file, lang, &b, 0) {
+                    Some(imported) => {
+                        // `from mypkg.tasks import runner` inside the package
+                        // mypkg/ itself: the module from another root.
+                        let t = self.resolve_binding(file, lang, &b, 0).or_else(|| {
+                            if lang != Language::Python {
+                                return None;
+                            }
+                            let f = self.modules.python_module_any_root(self.syms, &b.module)?;
+                            self.find_export(&f, imported, lang, 1)
+                        });
+                        if let Some(t) = t {
                             // `from pkg import sub` then `sub.Name`: a module's export.
                             if self.syms.get(t).kind == NodeKind::File {
                                 let f = self.syms.get(t).file.clone();
@@ -1229,10 +1266,9 @@ impl<'a> Matcher<'a> {
                 // A module from outside the project (`import subprocess`)
                 // has no project methods, unless the file rebinds the name.
                 if lang == Language::Python
-                    && self
+                    && !self
                         .modules
-                        .resolve(self.syms, file, lang, &b.module)
-                        .is_empty()
+                        .python_project_module_any_root(self.syms, &b.module)
                     && !self.rebinds(file, root)
                 {
                     return None;

@@ -297,3 +297,24 @@ impl Project {
             .collect()
     }
 }
+
+impl Project {
+    /// Write more files (or rewrite some) under the project.
+    pub fn write(&self, files: &[(&str, &str)]) {
+        for (rel, text) in files {
+            let p = self.dir.path().join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        }
+    }
+
+    /// Incremental sync after [`Self::write`].
+    pub fn sync(&mut self) {
+        self.cg.sync(None).unwrap();
+    }
+
+    /// A full re-index of the same tree.
+    pub fn reindex(&mut self) {
+        self.cg.index_all(None).unwrap();
+    }
+}

@@ -578,3 +578,222 @@ fn function_value_scope() {
         "tests/test_coverage.py:recipe",
     );
 }
+
+const LOADER: &str = "class Registry:\n    def get(self, k):\n        return k\n\n\ndef load_registry():\n    return Registry()\n";
+
+/// python-from-import-module-file: the module of a from-import links its
+/// file, as `import x` does.
+#[test]
+fn from_import_module_file() {
+    let p = Project::new(&[
+        ("loader.py", LOADER),
+        ("packs.py", "from loader import Registry, load_registry\n\n\ndef use():\n    return load_registry()\n"),
+        ("plain.py", "import loader\n\n\ndef use():\n    return loader.load_registry()\n"),
+    ]);
+    assert_eq!(
+        p.imports_of_file("packs.py"),
+        vec![
+            "class:Registry@loader.py",
+            "file:loader.py@loader.py",
+            "function:load_registry@loader.py"
+        ]
+    );
+    assert_eq!(
+        p.imports_of_file("plain.py"),
+        vec!["file:loader.py@loader.py"]
+    );
+
+    let p = Project::new(&[
+        ("pkg/__init__.py", "def helper():\n    return 1\n"),
+        ("pkg/sub/__init__.py", "def deep():\n    return 2\n"),
+        (
+            "app.py",
+            "from pkg import helper\nfrom pkg.sub import deep\n",
+        ),
+    ]);
+    assert_eq!(
+        p.imports_of_file("app.py"),
+        vec![
+            "file:__init__.py@pkg/__init__.py",
+            "file:__init__.py@pkg/sub/__init__.py",
+            "function:deep@pkg/sub/__init__.py",
+            "function:helper@pkg/__init__.py",
+        ]
+    );
+
+    let p = Project::new(&[
+        ("pyproject.toml", "[project]\nname = \"app\"\n"),
+        ("src/app/__init__.py", "def helper():\n    return 1\n"),
+        (
+            "tests/test_app.py",
+            "from app import helper\n\n\ndef test_helper():\n    assert helper() == 1\n",
+        ),
+    ]);
+    assert_eq!(
+        p.imports_of_file("tests/test_app.py"),
+        vec![
+            "file:__init__.py@src/app/__init__.py",
+            "function:helper@src/app/__init__.py"
+        ]
+    );
+
+    let p = Project::new(&[
+        ("loader.py", LOADER),
+        ("packs.py", "from \\\n    loader import Registry\n"),
+    ]);
+    assert_eq!(
+        p.imports_of_file("packs.py"),
+        vec!["class:Registry@loader.py", "file:loader.py@loader.py"]
+    );
+
+    let p = Project::new(&[
+        ("tests/fixtures/requests.py", "class Session:\n    pass\n"),
+        (
+            "client.py",
+            "from requests import Session\nimport requests\n",
+        ),
+    ]);
+    assert!(p.imports_of_file("client.py").is_empty());
+
+    let p = Project::new(&[
+        ("pkg/__init__.py", ""),
+        ("pkg/loader.py", LOADER),
+        ("app.py", "from pkg import loader\n"),
+    ]);
+    assert_eq!(
+        p.imports_of_file("app.py"),
+        vec![
+            "file:__init__.py@pkg/__init__.py",
+            "file:loader.py@pkg/loader.py"
+        ]
+    );
+
+    let mut p = Project::new(&[("packs.py", "from loader import Registry\n")]);
+    assert!(p.imports_of_file("packs.py").is_empty());
+    p.write(&[("loader.py", LOADER)]);
+    p.sync();
+    let synced = p.imports_of_file("packs.py");
+    p.reindex();
+    assert_eq!(synced, p.imports_of_file("packs.py"));
+    assert_eq!(
+        synced,
+        vec!["class:Registry@loader.py", "file:loader.py@loader.py"]
+    );
+}
+
+/// python-from-import-module-name: the module of a from-import is never a
+/// variable named like the package.
+#[test]
+fn from_import_module_name() {
+    let pkg = [
+        ("app/__init__.py", ""),
+        ("app/email.py", "def send():\n    return 1\n"),
+    ];
+    for extra in [
+        ("app/main.py", "app = object()\n"),
+        ("server.py", "app = object()\n"),
+    ] {
+        let mut files = pkg.to_vec();
+        files.push(extra);
+        files.push((
+            "tests/test_email.py",
+            "from app import email\n\n\ndef test_send():\n    email.send()\n",
+        ));
+        let out = Project::new(&files).imports_of_file("tests/test_email.py");
+        assert!(!out.iter().any(|e| e.starts_with("variable:")), "{out:?}");
+        assert_has(&out, "file:email.py@app/email.py");
+    }
+    for code in [
+        "from app \\\n    import email\n",
+        "from \\\n    app import email\n",
+        "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    from app import email\n",
+    ] {
+        let mut files = pkg.to_vec();
+        files.push(("app/main.py", "app = object()\n"));
+        files.push(("tests/test_email.py", code));
+        let out = Project::new(&files).imports_of_file("tests/test_email.py");
+        assert!(
+            !out.iter().any(|e| e.starts_with("variable:")),
+            "{code}: {out:?}"
+        );
+    }
+    let mut files = pkg.to_vec();
+    files.push(("app/main.py", "app = object()\n"));
+    files.push(("run.py", "from app.main import app\n"));
+    assert_has(
+        &Project::new(&files).imports_of_file("run.py"),
+        "variable:app@app/main.py",
+    );
+}
+
+/// python-resolution-work (behaviour; upstream also counts file reads): a
+/// method value on a global typed by another module's writes, and bare
+/// calls a function shadows.
+#[test]
+fn resolution_work() {
+    let conns: Vec<String> = (0..16).map(|i| format!("conn{i}")).collect();
+    let settings = format!(
+        "from store import Store\n{}\ndef init():\n    global {}\n{}",
+        conns
+            .iter()
+            .map(|c| format!("{c} = None\n"))
+            .collect::<String>(),
+        conns.join(", "),
+        conns
+            .iter()
+            .map(|c| format!("    {c} = Store()\n"))
+            .collect::<String>()
+    );
+    let consumer = format!(
+        "import settings\n{}",
+        conns
+            .iter()
+            .enumerate()
+            .map(|(i, c)| format!("\ndef cb{i}(pool):\n    pool.submit(settings.{c}.fetch)\n"))
+            .collect::<String>()
+    );
+    let callers = (0..16)
+        .map(|i| format!("def f{i}():\n    return helper()\n\n"))
+        .collect::<String>()
+        + "def shadowed(make):\n    helper = make()\n    return helper()\n";
+    let p = Project::new(&[
+        (
+            "store.py",
+            "class Store:\n    def fetch(self, ids):\n        return ids\n",
+        ),
+        ("settings.py", &settings),
+        ("consumer.py", &consumer),
+        ("helpers.py", "def helper():\n    return 1\n"),
+        ("callers.py", &callers),
+    ]);
+    let fetch = p
+        .named("fetch")
+        .into_iter()
+        .find(|n| n.qualified_name == "Store::fetch")
+        .unwrap();
+    let mut refs: Vec<String> =
+        p.cg.store()
+            .incoming_edges(&fetch.id, &[EdgeKind::References, EdgeKind::Calls])
+            .unwrap()
+            .iter()
+            .filter_map(|e| p.node(&e.source))
+            .map(|n| n.name)
+            .collect();
+    refs.sort();
+    let mut want: Vec<String> = (0..16).map(|i| format!("cb{i}")).collect();
+    want.sort();
+    assert_eq!(refs, want);
+    let helper = p.function("helper");
+    let mut callers: Vec<String> =
+        p.cg.store()
+            .incoming_edges(&helper.id, &[EdgeKind::Calls])
+            .unwrap()
+            .iter()
+            .filter_map(|e| p.node(&e.source))
+            .map(|n| n.name)
+            .collect();
+    callers.sort();
+    let mut want: Vec<String> = (0..16).map(|i| format!("f{i}")).collect();
+    want.sort();
+    assert_eq!(callers, want);
+}

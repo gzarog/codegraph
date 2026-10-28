@@ -430,6 +430,19 @@ pub fn index_project(
                     .filter(|n| n.kind != NodeKind::File)
                     .map(|n| n.name.clone()),
             );
+            // A new file is a module an import may name: `loader` for
+            // loader.py, `pkg` for pkg/__init__.py.
+            for n in result.nodes.iter().filter(|n| n.kind == NodeKind::File) {
+                let (dir, file) = n.file_path.rsplit_once('/').unwrap_or(("", &n.file_path));
+                let stem = file.split_once('.').map_or(file, |(s, _)| s);
+                if matches!(stem, "__init__" | "index" | "mod" | "lib") {
+                    if let Some(d) = dir.rsplit('/').next().filter(|d| !d.is_empty()) {
+                        new_names.insert(d.to_string());
+                    }
+                } else {
+                    new_names.insert(stem.to_string());
+                }
+            }
         }
         store.store_files(&built)?;
         stored += built.len();
