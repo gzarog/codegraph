@@ -329,8 +329,8 @@ impl<'a> Matcher<'a> {
             .map_or(text.len(), |(i, _)| i);
         let rest = &text[col..];
         for recv in ["self.", "cls."] {
-            if rest.starts_with(recv) {
-                return Some(rest[recv.len()..].starts_with(name));
+            if let Some(after) = rest.strip_prefix(recv) {
+                return Some(after.starts_with(name));
             }
         }
         let at = rest.find(name).map(|i| col + i)?;
