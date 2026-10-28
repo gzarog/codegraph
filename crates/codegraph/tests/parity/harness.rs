@@ -318,3 +318,33 @@ impl Project {
         self.cg.index_all(None).unwrap();
     }
 }
+
+impl Project {
+    /// `qualified@file` of the methods the function or method `qualified`
+    /// in `file` calls, sorted.
+    pub fn method_calls(&self, file: &str, qualified: &str) -> Vec<String> {
+        let src = self
+            .nodes_in(file)
+            .into_iter()
+            .find(|n| n.qualified_name == qualified && n.kind.is_callable())
+            .unwrap_or_else(|| panic!("no {file}:{qualified}"));
+        self.methods_called_by(&src)
+    }
+
+    /// `qualified@file` of the methods `src` calls, sorted.
+    pub fn methods_called_by(&self, src: &Node) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .targets(src, EdgeKind::Calls)
+            .into_iter()
+            .filter(|n| n.kind == codegraph_core::NodeKind::Method)
+            .map(|n| format!("{}@{}", n.qualified_name, n.file_path))
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// The file node of `file`.
+    pub fn file_node(&self, file: &str) -> Node {
+        self.cg.store().file_node(file).unwrap().unwrap()
+    }
+}

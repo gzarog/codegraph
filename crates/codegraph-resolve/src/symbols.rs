@@ -322,17 +322,45 @@ impl Symbols {
     pub fn member_named(&self, ty: SymId, name: &str, lang: Language) -> Option<SymId> {
         for t in self.type_lineage(ty) {
             let qn = &self.syms[t].qualified_name;
-            let hit = self.members_of(qn).iter().copied().find(|&m| {
-                let s = &self.syms[m];
-                (s.name == name || case_insensitive(lang) && s.name.eq_ignore_ascii_case(name))
-                    && s.file_or_same_owner(&self.syms[t])
-            });
-            if hit.is_some() {
-                return hit;
+            let owner = &self.syms[t];
+            let named = |m: &SymId| {
+                let s = &self.syms[*m];
+                s.name == name || case_insensitive(lang) && s.name.eq_ignore_ascii_case(name)
+            };
+            let members = self.members_of(qn);
+            // The type's own file first: two classes may share a name.
+            if let Some(&m) = members
+                .iter()
+                .find(|m| named(m) && self.syms[**m].file == owner.file)
+            {
+                return Some(m);
+            }
+            if !one_file_types(owner.language) {
+                let hit = members
+                    .iter()
+                    .copied()
+                    .find(|m| named(m) && self.syms[*m].file_or_same_owner(owner));
+                if hit.is_some() {
+                    return hit;
+                }
             }
         }
         None
     }
+}
+
+/// Languages whose class body holds all its members, in one file.
+fn one_file_types(lang: Language) -> bool {
+    matches!(
+        lang,
+        Language::Python
+            | Language::Java
+            | Language::TypeScript
+            | Language::JavaScript
+            | Language::Tsx
+            | Language::Jsx
+            | Language::Php
+    )
 }
 
 impl Sym {

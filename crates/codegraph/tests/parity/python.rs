@@ -961,3 +961,421 @@ fn call_fabrication() {
         .contains(&append.id));
     assert!(!p.callee_ids(&p.callable("build_map")).contains(&append.id));
 }
+
+/// python-typed-builtin-method-calls fixture.
+const TYPED_BUILTIN: &[(&str, &str)] = &[
+    (
+        "loader.py",
+        r#"class SystemPackRegistry:
+    def get(self, pack_id):
+        return pack_id
+
+    def update(self):
+        return None
+
+    def items(self):
+        return []
+
+    def pop(self, key):
+        return key
+
+    def close(self):
+        return None
+
+
+def load_registry() -> SystemPackRegistry:
+    return SystemPackRegistry()
+
+
+def make_registry():
+    return SystemPackRegistry()
+
+
+async def open_registry() -> "SystemPackRegistry":
+    return SystemPackRegistry()
+"#,
+    ),
+    (
+        "test_packs.py",
+        r#"from loader import SystemPackRegistry, load_registry
+
+
+def test_pack():
+    registry = load_registry()
+    return registry.get("x")
+
+
+def test_ctor():
+    reg = SystemPackRegistry()
+    reg.update()
+    return reg.get("y")
+"#,
+    ),
+    (
+        "more.py",
+        r#"from typing import Optional
+import loader
+from loader import SystemPackRegistry, make_registry, open_registry
+
+
+def annotated(reg: SystemPackRegistry):
+    reg.get("a")
+    reg.items()
+
+
+def quoted(reg: "SystemPackRegistry"):
+    reg.pop("b")
+
+
+def optional(reg: Optional[SystemPackRegistry] = None):
+    reg.close()
+
+
+def ctor_more():
+    reg = SystemPackRegistry()
+    reg.items()
+    reg.pop("d")
+    reg.close()
+
+
+def through_module():
+    reg = loader.SystemPackRegistry()
+    reg.items()
+
+
+def untyped_factory():
+    reg = make_registry()
+    reg.update()
+
+
+async def awaited_factory():
+    reg = await open_registry()
+    reg.close()
+
+
+def none_first(flag):
+    reg = None
+    if flag:
+        reg = SystemPackRegistry()
+    reg.update()
+
+
+def annotated_local():
+    reg: SystemPackRegistry = make_registry()
+    reg.pop("e")
+
+
+def closure():
+    reg = SystemPackRegistry()
+
+    def inner():
+        return reg.get("f")
+    return inner
+"#,
+    ),
+    (
+        "a.py",
+        r#"class Handler:
+    def get(self):
+        return "a"
+"#,
+    ),
+    (
+        "b.py",
+        r#"class Handler:
+    def get(self):
+        return "b"
+"#,
+    ),
+    (
+        "handlers.py",
+        r#"from b import Handler
+
+
+def handle():
+    h = Handler()
+    return h.get()
+"#,
+    ),
+    (
+        "base.py",
+        r#"class BaseStore:
+    def update(self, data):
+        return data
+"#,
+    ),
+    (
+        "derived.py",
+        r#"from base import BaseStore
+
+
+class Derived(BaseStore):
+    pass
+
+
+def refresh():
+    d = Derived()
+    d.update({})
+"#,
+    ),
+    (
+        "models.py",
+        r#"class Queue:
+    def get(self):
+        return None
+
+
+class Session:
+    def get(self, url):
+        return url
+
+    def close(self):
+        return None
+
+
+class Store:
+    def get(self, key):
+        return key
+
+    def update(self, data):
+        return data
+
+    def items(self):
+        return []
+
+
+class Foo:
+    def build(self):
+        return self
+
+    def data(self):
+        return {}
+
+
+class Counter:
+    def update(self, other):
+        return other
+
+
+class StringIO:
+    def read(self):
+        return ""
+"#,
+    ),
+    (
+        "traps.py",
+        r#"import json
+from queue import Queue
+from requests import Session
+from collections import Counter
+from io import StringIO
+from models import Store, Foo
+
+
+def outside_import():
+    q = Queue()
+    q.get()
+    s = Session()
+    s.get("http://x")
+    c = Counter()
+    c.update("abc")
+    buf = StringIO()
+    buf.read()
+
+
+def rebinding(p):
+    reg = Store()
+    reg = {}
+    reg.get("k")
+    data = Store()
+    data = json.load(p)
+    data.update({})
+
+
+def branches(flag, rows, path):
+    a = Store() if flag else {}
+    a.get("k")
+    if flag:
+        b = Store()
+    else:
+        b = {}
+    b.get("k")
+    c = Store()
+    for c in rows:
+        c.items()
+    d = Store()
+    with open(path) as d:
+        d.get("k")
+    e = Store()
+    return [e.get("k") for e in rows]
+
+
+def chained():
+    x = Foo().data()
+    x.get("k")
+    y = Foo().build()
+    y.get("k")
+
+
+def unions(reg: "Store | dict"):
+    if isinstance(reg, dict):
+        reg.get("k")
+
+
+def unannotated(reg):
+    reg.get("k")
+
+
+def rebound_callee(load):
+    Store = load()
+    reg = Store()
+    reg.get("k")
+
+
+_store = Store()
+_store = {}
+
+
+def rebound_global():
+    _store.get("k")
+"#,
+    ),
+    (
+        "modlevel.py",
+        r#"from models import Store
+
+
+def make():
+    reg = Store()
+    return reg
+
+
+reg = {}
+reg.get("k")
+"#,
+    ),
+    (
+        "outside_base.py",
+        r#"from somepkg import BaseStore
+
+
+class Child(BaseStore):
+    pass
+
+
+def use_child():
+    ch = Child()
+    ch.update({})
+"#,
+    ),
+];
+
+/// python-typed-builtin-method-calls: builtin-named methods (`get`,
+/// `update`, …) through a local or parameter whose type the function
+/// states; the shapes where typing would be wrong stay unlinked.
+#[test]
+fn typed_builtin_method_calls() {
+    let p = Project::new(TYPED_BUILTIN);
+    let c = |f: &str, q: &str| p.method_calls(f, q);
+    let reg = |m: &str| format!("SystemPackRegistry::{m}@loader.py");
+    assert_eq!(
+        c("test_packs.py", "test_ctor"),
+        vec![reg("get"), reg("update")]
+    );
+    assert_eq!(c("test_packs.py", "test_pack"), vec![reg("get")]);
+    assert_eq!(c("more.py", "annotated"), vec![reg("get"), reg("items")]);
+    assert_eq!(c("more.py", "quoted"), vec![reg("pop")]);
+    assert_eq!(c("more.py", "optional"), vec![reg("close")]);
+    assert_eq!(
+        c("more.py", "ctor_more"),
+        vec![reg("close"), reg("items"), reg("pop")]
+    );
+    assert_eq!(c("more.py", "through_module"), vec![reg("items")]);
+    assert_eq!(c("more.py", "untyped_factory"), vec![reg("update")]);
+    assert_eq!(c("more.py", "awaited_factory"), vec![reg("close")]);
+    assert_eq!(c("more.py", "none_first"), vec![reg("update")]);
+    assert_eq!(c("more.py", "annotated_local"), vec![reg("pop")]);
+    assert_eq!(c("more.py", "closure::inner"), vec![reg("get")]);
+    assert_eq!(c("handlers.py", "handle"), vec!["Handler::get@b.py"]);
+    assert_eq!(
+        c("derived.py", "refresh"),
+        vec!["BaseStore::update@base.py"]
+    );
+    let none: Vec<String> = Vec::new();
+    assert_eq!(c("traps.py", "outside_import"), none);
+    assert_eq!(c("traps.py", "rebinding"), none);
+    assert_eq!(c("traps.py", "branches"), none);
+    assert_eq!(
+        c("traps.py", "chained"),
+        vec!["Foo::build@models.py", "Foo::data@models.py"]
+    );
+    for f in ["unions", "unannotated", "rebound_callee", "rebound_global"] {
+        assert_eq!(c("traps.py", f), none, "{f}");
+    }
+    assert_eq!(p.methods_called_by(&p.file_node("modlevel.py")), none);
+    assert_eq!(c("outside_base.py", "use_child"), none);
+}
+
+/// python-typed-builtin-method-calls: a sync after an edit to the file a
+/// typed local reads matches a fresh index.
+#[test]
+fn typed_builtin_method_calls_sync() {
+    const USE: &str = "from loader import Registry, make\n\n\ndef ctor():\n    reg = Registry()\n    return reg.get(\"k\")\n\n\ndef factory():\n    reg = make()\n    return reg.get(\"k\")\n";
+    let synced_matches_fresh = |p: &mut Project, q: &str| {
+        p.sync();
+        let synced = p.method_calls("use.py", q);
+        p.reindex();
+        assert_eq!(synced, p.method_calls("use.py", q), "sync vs fresh");
+        synced
+    };
+    let classes = "class Registry:\n    def get(self, k):\n        return k\n\n\nclass Other:\n    def get(self, k):\n        return k\n\n\n";
+    let mut p = Project::new(&[
+        (
+            "loader.py",
+            &format!("{classes}def make() -> Registry:\n    return Registry()\n"),
+        ),
+        ("use.py", USE),
+    ]);
+    assert_eq!(
+        p.method_calls("use.py", "factory"),
+        vec!["Registry::get@loader.py"]
+    );
+    p.write(&[(
+        "loader.py",
+        &format!("{classes}def make() -> Other:\n    return Other()\n"),
+    )]);
+    assert_eq!(
+        synced_matches_fresh(&mut p, "factory"),
+        vec!["Other::get@loader.py"]
+    );
+
+    let cls = "class Registry:\n    def get(self, k):\n        return k\n\n\n";
+    let mut p = Project::new(&[
+        (
+            "loader.py",
+            &format!("{cls}def make(kind):\n    return kind()\n"),
+        ),
+        ("use.py", USE),
+    ]);
+    assert!(p.method_calls("use.py", "factory").is_empty());
+    p.write(&[(
+        "loader.py",
+        &format!("{cls}def make(kind) -> Registry:\n    return kind()\n"),
+    )]);
+    assert_eq!(
+        synced_matches_fresh(&mut p, "factory"),
+        vec!["Registry::get@loader.py"]
+    );
+
+    let without = "class Registry:\n    def other(self):\n        pass\n\n\ndef make():\n    return Registry()\n";
+    let with_get = "class Registry:\n    def other(self):\n        pass\n\n    def get(self, k):\n        return k\n\n\ndef make():\n    return Registry()\n";
+    let mut p = Project::new(&[("loader.py", without), ("use.py", USE)]);
+    assert!(p.method_calls("use.py", "ctor").is_empty());
+    p.write(&[("loader.py", with_get)]);
+    assert_eq!(
+        synced_matches_fresh(&mut p, "ctor"),
+        vec!["Registry::get@loader.py"]
+    );
+    p.write(&[("loader.py", without)]);
+    assert!(synced_matches_fresh(&mut p, "ctor").is_empty());
+}

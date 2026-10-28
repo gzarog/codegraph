@@ -4,6 +4,7 @@
 //! the same file, import bindings, the same package/namespace, and finally a
 //! project-wide name match ranked by path proximity.
 
+mod python;
 use crate::imports::{parse_import, Binding};
 use crate::modules::{common_prefix_len, dir_of, Modules};
 use crate::symbols::{same_family, SymId, Symbols};
@@ -186,6 +187,8 @@ pub struct Matcher<'a> {
     scope_types: HashMap<SymId, Rc<HashMap<String, String>>>,
     /// Where the reference being resolved is written (line, column).
     pub at: Option<(u32, u32)>,
+    /// Nesting of names resolved while typing a receiver.
+    typing_depth: u8,
 }
 
 impl<'a> Matcher<'a> {
@@ -199,6 +202,7 @@ impl<'a> Matcher<'a> {
             lines: HashMap::new(),
             scope_types: HashMap::new(),
             at: None,
+            typing_depth: 0,
         }
     }
 
@@ -448,6 +452,9 @@ impl<'a> Matcher<'a> {
         if var.is_empty() || !var.chars().all(|c| c.is_alphanumeric() || c == '_') {
             return None;
         }
+        if lang == Language::Python && !in_class {
+            return self.python_var_type(from, file, &var);
+        }
         let mut ty = None;
         if !in_class {
             // Innermost scope first: the function, then any enclosing functions.
@@ -468,22 +475,6 @@ impl<'a> Matcher<'a> {
                         .find(|&i| self.syms.get(i).qualified_name == o)
                 });
             }
-        }
-        if ty.is_none()
-            && !in_class
-            && lang == Language::Python
-            && !self.python_param(from, &var)
-            && !self.binds_locally(from, &var)
-        {
-            // A module-level assignment (`subprocess = Fake()`) the function
-            // does not shadow.
-            let lines = self.file_lines(file);
-            let top: Vec<&str> = lines
-                .iter()
-                .map(String::as_str)
-                .filter(|l| !l.starts_with([' ', '\t']))
-                .collect();
-            ty = declared_types(&top.join("\n")).get(&var).cloned();
         }
         if ty.is_none() {
             // A field of the enclosing type.
@@ -859,6 +850,11 @@ impl<'a> Matcher<'a> {
         kind: ReferenceKind,
         name: &str,
     ) -> Option<Match> {
+        // A name the function binds itself (`view = View.as_view()`) is
+        // that value, not an imported or module-level symbol of the name.
+        if lang == Language::Python && self.binds_locally(from, name) {
+            return None;
+        }
         // 2. The same file.
         if let Some(t) = self.best_in_file(from, file, name, lang, kind) {
             return Some(Match::new(t, "same-file", 0.9));
@@ -882,11 +878,6 @@ impl<'a> Matcher<'a> {
             {
                 return None;
             }
-        }
-        // A name the function binds itself (`view = View.as_view()`) is
-        // that value, not some other file's function of the name.
-        if lang == Language::Python && self.binds_locally(from, name) {
-            return None;
         }
         // A parameter is the argument passed, or a pytest fixture a
         // conftest.py above the file declares.
@@ -1397,9 +1388,7 @@ impl<'a> Matcher<'a> {
                 // project instance; one bound to `Class()` may still reach
                 // a method that class inherits from outside the project.
                 if let Some(value) = self.python_bound_value(from, file, root) {
-                    static CTOR: LazyLock<Regex> =
-                        LazyLock::new(|| Regex::new(r"^[A-Z]\w*\s*\(").unwrap());
-                    if !CTOR.is_match(&value) {
+                    if !self.python_project_class_call(from, file, &value) {
                         return None;
                     }
                 }
