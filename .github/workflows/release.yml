@@ -2,16 +2,24 @@ name: Release
 
 # Pushing a vX.Y.Z tag builds the binaries `codegraph upgrade` and the
 # install scripts download: codegraph-<os>-<arch>.tar.gz (.zip on Windows)
-# plus SHA256SUMS.
+# plus SHA256SUMS. The "Create release" workflow calls this one with the tag
+# it just pushed, since a tag pushed by a workflow doesn't trigger others.
 on:
   push:
     tags: ["v*"]
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to build and publish, e.g. v0.2.0
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 env:
   CARGO_TERM_COLOR: always
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   build:
@@ -21,12 +29,14 @@ jobs:
         include:
           - { runner: ubuntu-latest, asset: codegraph-linux-x86_64 }
           - { runner: ubuntu-24.04-arm, asset: codegraph-linux-aarch64 }
-          - { runner: macos-13, asset: codegraph-macos-x86_64 }
+          - { runner: macos-15-intel, asset: codegraph-macos-x86_64 }
           - { runner: macos-14, asset: codegraph-macos-aarch64 }
           - { runner: windows-latest, asset: codegraph-windows-x86_64 }
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -62,5 +72,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" --title "$TAG" --verify-tag --generate-notes

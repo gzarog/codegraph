@@ -1,0 +1,70 @@
+name: Create release
+
+# Run from the Actions tab with a version: writes it into Cargo.toml and
+# Cargo.lock, commits that to main, tags vX.Y.Z and publishes the release the
+# install scripts and `codegraph upgrade` download.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, e.g. 0.2.0 (no leading v)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: create-release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check the version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' \
+            || { echo "::error::'$VERSION' is not a version like 1.2.3"; exit 1; }
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::tag v$VERSION already exists"; exit 1
+          fi
+      - name: Bump the workspace version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          sed -i "/^\[workspace.package\]/,/^\[/ s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+          cargo update --workspace
+          grep -q "^version = \"$VERSION\"" Cargo.toml || { echo "::error::could not set the version in Cargo.toml"; exit 1; }
+      - name: Commit, tag and push
+        id: tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet; then
+            git commit -am "Release v$VERSION"
+            git push origin HEAD:main
+          fi
+          git tag -a "v$VERSION" -m "v$VERSION"
+          git push origin "v$VERSION"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: tag
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
