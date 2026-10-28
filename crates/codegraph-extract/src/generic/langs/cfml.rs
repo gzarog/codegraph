@@ -60,45 +60,47 @@ fn kids<'t>(n: Node<'t>) -> Vec<Node<'t>> {
     n.named_children(&mut cur).collect()
 }
 
-/// The component's name: its file's stem.
+/// The component's name: its file name without the extension.
 fn stem(path: &str) -> String {
-    path.rsplit('/')
-        .next()
-        .unwrap_or(path)
-        .split('.')
-        .next()
-        .unwrap_or("")
-        .to_string()
+    let file = path.rsplit('/').next().unwrap_or(path);
+    file.rsplit_once('.').map_or(file, |(s, _)| s).to_string()
 }
 
-/// `name="x"` attributes of a tag or a script component.
+/// `name="x"` attributes of a tag or a script component: its own, never a
+/// nested tag's.
 fn attributes(w: &Walker<'_>, n: Node<'_>) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    let mut stack = vec![n];
-    while let Some(x) = stack.pop() {
-        match x.kind() {
-            "cf_attribute" | "component_attribute" => {
-                let k = kids(x);
-                let name = k
-                    .iter()
-                    .find(|c| matches!(c.kind(), "cf_attribute_name" | "identifier"))
-                    .map(|c| w.text(*c).to_lowercase());
-                let value = k
-                    .iter()
-                    .find(|c| {
-                        matches!(
-                            c.kind(),
-                            "quoted_cf_attribute_value" | "string" | "attribute_value"
-                        )
-                    })
-                    .map(|c| w.text(*c).trim_matches(['"', '\'']).to_string());
-                if let (Some(n), Some(v)) = (name, value) {
-                    out.push((n, v));
-                }
-            }
-            // A nested tag's attributes are its own.
-            "cf_selfclose_tag" | "cf_function_tag" if x != n => {}
-            _ => stack.extend(kids(x)),
+    let mut own: Vec<Node<'_>> = kids(n);
+    // An open tag holds its attributes in a wrapper.
+    let mut i = 0;
+    while i < own.len() {
+        if own[i].kind() == "cf_tag_attributes" {
+            let inner = kids(own[i]);
+            own.splice(i..=i, inner);
+            continue;
+        }
+        i += 1;
+    }
+    for x in own {
+        if !matches!(x.kind(), "cf_attribute" | "component_attribute") {
+            continue;
+        }
+        let k = kids(x);
+        let name = k
+            .iter()
+            .find(|c| matches!(c.kind(), "cf_attribute_name" | "identifier"))
+            .map(|c| w.text(*c).to_lowercase());
+        let value = k
+            .iter()
+            .find(|c| {
+                matches!(
+                    c.kind(),
+                    "quoted_cf_attribute_value" | "string" | "attribute_value"
+                )
+            })
+            .map(|c| w.text(*c).trim_matches(['"', '\'']).to_string());
+        if let (Some(n), Some(v)) = (name, value) {
+            out.push((n, v));
         }
     }
     out

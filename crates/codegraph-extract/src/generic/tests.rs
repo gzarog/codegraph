@@ -188,6 +188,13 @@ fn erlang_modules() {
         ]
     );
     assert_eq!(refs(&r, ReferenceKind::References), vec!["inc/1", "item"]);
+    // The pair before the argument list is the MFA, not the node name.
+    let rpc = "-module(c).\nrun() -> rpc:call('n@host', worker, start, [1]).\n";
+    let r = extract_file("c.erl", rpc, Language::Erlang);
+    assert_eq!(
+        refs(&r, ReferenceKind::Calls),
+        vec!["rpc::call/4", "worker::start/1"]
+    );
 }
 
 #[test]
@@ -226,4 +233,8 @@ fn cfml_components() {
     assert_eq!(names(&r, NodeKind::Method), vec!["Saver::save"]);
     assert_eq!(refs(&r, ReferenceKind::Imports), vec!["inc/header.cfm"]);
     assert_eq!(from(&r, "validate"), "save");
+    // A nested tag's `name` is not the function's.
+    let nested = "<cfcomponent>\n  <cffunction name=\"load\">\n    <cfquery name=\"q\">SELECT 1</cfquery>\n  </cffunction>\n</cfcomponent>\n";
+    let r = extract_file("models/user.dao.cfc", nested, Language::Cfml);
+    assert_eq!(names(&r, NodeKind::Method), vec!["user.dao::load"]);
 }

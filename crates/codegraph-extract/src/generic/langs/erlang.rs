@@ -302,28 +302,34 @@ impl Erlang {
             };
             if MFA_CALLS.contains(&family.as_str()) {
                 let args: Vec<Node<'_>> = args.map(kids).unwrap_or_default();
-                for i in 0..args.len().saturating_sub(1) {
+                let is_module = |m: Node<'_>| {
+                    m.kind() == "atom"
+                        || m.kind() == "macro_call_expr"
+                            && field(m, "name").map(|x| w.text(x)) == Some("MODULE")
+                };
+                let pairs: Vec<usize> = (0..args.len().saturating_sub(1))
+                    .filter(|&i| args[i + 1].kind() == "atom" && is_module(args[i]))
+                    .collect();
+                // The pair right before the argument list, so a node name
+                // (`rpc:call('n@h', M, F, A)`) is never taken for the module.
+                let chosen = pairs
+                    .iter()
+                    .copied()
+                    .find(|&i| args.get(i + 2).is_some_and(|l| l.kind() == "list"))
+                    .or_else(|| pairs.first().copied());
+                if let Some(i) = chosen {
                     let (m, f) = (args[i], args[i + 1]);
-                    if f.kind() != "atom" {
-                        continue;
-                    }
-                    let local = m.kind() == "macro_call_expr"
-                        && field(m, "name").map(|x| w.text(x)) == Some("MODULE");
-                    if m.kind() != "atom" && !local {
-                        continue;
-                    }
                     let tail = args
                         .get(i + 2)
                         .filter(|l| l.kind() == "list")
                         .map(|l| format!("/{}", l.named_child_count()))
                         .unwrap_or_default();
-                    let target = if local {
-                        format!("{}{tail}", atom(w, f))
-                    } else {
+                    let target = if m.kind() == "atom" {
                         format!("{}::{}{tail}", atom(w, m), atom(w, f))
+                    } else {
+                        format!("{}{tail}", atom(w, f))
                     };
                     w.call(&target, f);
-                    break;
                 }
             }
         }
