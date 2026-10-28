@@ -229,6 +229,88 @@ impl<'a> Matcher<'a> {
         rc
     }
 
+    /// The module `alias` names when the callable `scope` (or one around it)
+    /// imports it as `import a.b as alias` or `import alias` in its body.
+    fn local_module_alias(&mut self, scope: SymId, alias: &str) -> Option<String> {
+        let a = regex::escape(alias);
+        let re = Regex::new(&format!(
+            r"(?m)^[ \t]+import[ \t]+([\w.]+)[ \t]+as[ \t]+{a}[ \t]*$|^[ \t]+import[ \t]+({a})[ \t]*$"
+        ))
+        .ok()?;
+        let mut sc = Some(scope);
+        for _ in 0..4 {
+            let s = self.syms.get(sc?);
+            if !s.kind.is_callable() {
+                return None;
+            }
+            let (file, start, end) = (s.file.clone(), s.start_line as usize, s.end_line as usize);
+            let lines = self.file_lines(&file);
+            let body = lines
+                .iter()
+                .skip(start)
+                .take(end.saturating_sub(start))
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join("\n");
+            if let Some(c) = re.captures(&body) {
+                return c
+                    .get(1)
+                    .or_else(|| c.get(2))
+                    .map(|m| m.as_str().to_string());
+            }
+            sc = self
+                .syms
+                .owner_type(sc?)
+                .filter(|&o| self.syms.get(o).kind.is_callable());
+        }
+        None
+    }
+
+    /// The class a Python module-level variable is an instance of
+    /// (`CP = C()`), resolved from the variable's own file.
+    fn instance_type(&mut self, var: SymId, lang: Language) -> Option<SymId> {
+        let s = self.syms.get(var);
+        if lang != Language::Python || !matches!(s.kind, NodeKind::Variable | NodeKind::Constant) {
+            return None;
+        }
+        let (file, line, name) = (s.file.clone(), s.start_line as usize, s.name.clone());
+        let text = self.file_lines(&file).get(line.checked_sub(1)?)?.clone();
+        let re = Regex::new(&format!(
+            r"^\s*{}\s*(?::[^=]+)?=\s*([A-Z]\w*)\s*\(",
+            regex::escape(&name)
+        ))
+        .ok()?;
+        let ty = re.captures(&text)?.get(1)?.as_str().to_string();
+        let m = self.resolve_simple(var, &file, lang, ReferenceKind::Instantiates, &ty)?;
+        matches!(self.syms.get(m.target).kind, NodeKind::Class).then_some(m.target)
+    }
+
+    /// Whether the body of the callable `scope` assigns `name` (Python:
+    /// `name = …`, `for name in`, `with … as name`).
+    fn binds_locally(&mut self, scope: SymId, name: &str) -> bool {
+        let s = self.syms.get(scope);
+        if !s.kind.is_callable() {
+            return false;
+        }
+        let (file, start, end) = (s.file.clone(), s.start_line as usize, s.end_line as usize);
+        let lines = self.file_lines(&file);
+        let n = regex::escape(name);
+        let Ok(re) = Regex::new(&format!(
+            r"(?m)^\s*{n}\s*(?::[^=\n]+)?=[^=]|^\s*for\s+(?:[\w\s,(]*\b)?{n}\b[\w\s,)]*\s+in\b|\bas\s+{n}\s*[:,)]"
+        )) else {
+            return false;
+        };
+        // The body, not the `def` line (a parameter is not a local binding).
+        let body = lines
+            .iter()
+            .skip(start)
+            .take(end.saturating_sub(start))
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join("\n");
+        re.is_match(&body)
+    }
+
     /// The type symbol a receiver expression (`repo`, `this.repo`, `$repo`) holds.
     fn infer_receiver_type(
         &mut self,
@@ -462,7 +544,16 @@ impl<'a> Matcher<'a> {
             Some(_) if b.is_default => self.default_export(&files[0], lang),
             Some(imported) => files
                 .iter()
-                .find_map(|f| self.find_export(f, imported, lang, depth + 1)),
+                .find_map(|f| self.find_export(f, imported, lang, depth + 1))
+                .or_else(|| {
+                    // `from app import email`: a submodule of the package.
+                    if lang != Language::Python {
+                        return None;
+                    }
+                    let sub = format!("{}.{imported}", b.module.trim_end_matches('.'));
+                    let files = self.modules.resolve(self.syms, file, lang, &sub);
+                    self.file_target(&files)
+                }),
         }
     }
 
@@ -616,6 +707,21 @@ impl<'a> Matcher<'a> {
                     return Some(Match::new(t, "import", 0.95));
                 }
             }
+            // Imported from an external package (`from django.shortcuts
+            // import render`): not a project symbol of that name.
+            if lang == Language::Python
+                && self
+                    .modules
+                    .resolve(self.syms, file, lang, &b.module)
+                    .is_empty()
+            {
+                return None;
+            }
+        }
+        // A name the function binds itself (`view = View.as_view()`) is
+        // that value, not some other file's function of the name.
+        if lang == Language::Python && self.binds_locally(from, name) {
+            return None;
         }
         // 4. The same package / namespace, or a wildcard import.
         if let Some(t) = self.same_scope(file, lang, kind, name, &bindings, from) {
@@ -873,8 +979,33 @@ impl<'a> Matcher<'a> {
             });
         }
 
+        // A module imported inside the function: `import pkg.corpus as CP`.
+        if single && lang == Language::Python {
+            if let Some(module) = self.local_module_alias(from, root) {
+                let files = self.modules.resolve(self.syms, file, lang, &module);
+                return files
+                    .iter()
+                    .find_map(|f| self.find_export(f, tail, lang, 1))
+                    .map(|t| Match::new(t, "import-namespace", 0.9));
+            }
+        }
+
         // An import binding: a module namespace or an imported type.
         let bindings = self.bindings(file);
+        // `import app.helpers` binds the dotted path: `app.helpers.slugify()`.
+        if !single && lang == Language::Python {
+            if let Some(b) = bindings
+                .iter()
+                .find(|b| b.imported.is_none() && b.local == head)
+                .cloned()
+            {
+                let files = self.modules.resolve(self.syms, file, lang, &b.module);
+                return files
+                    .iter()
+                    .find_map(|f| self.find_export(f, tail, lang, 1))
+                    .map(|t| Match::new(t, "import-namespace", 0.9));
+            }
+        }
         if single {
             if let Some(b) = bindings
                 .iter()
@@ -896,8 +1027,22 @@ impl<'a> Matcher<'a> {
                     }
                     Some(_) => {
                         if let Some(t) = self.resolve_binding(file, lang, &b, 0) {
+                            // `from pkg import sub` then `sub.Name`: a module's export.
+                            if self.syms.get(t).kind == NodeKind::File {
+                                let f = self.syms.get(t).file.clone();
+                                if let Some(m) = self.find_export(&f, tail, lang, 1) {
+                                    return Some(Match::new(m, "import-namespace", 0.9));
+                                }
+                                return None;
+                            }
                             if let Some(m) = self.syms.member_named(t, tail, lang) {
                                 return Some(Match::new(m, "import-member", 0.85));
+                            }
+                            // `from cp import CP` where cp.py says `CP = C()`.
+                            if let Some(ty) = self.instance_type(t, lang) {
+                                if let Some(m) = self.syms.member_named(ty, tail, lang) {
+                                    return Some(Match::new(m, "import-instance", 0.85));
+                                }
                             }
                         }
                     }
@@ -1004,6 +1149,11 @@ impl<'a> Matcher<'a> {
                         && !s.local
                 })
                 .collect();
+            // Python receivers are dynamic: `User.objects.get` or
+            // `self.client.login` name no project method by name alone.
+            if lang == Language::Python {
+                return None;
+            }
             // Without the receiver's type, only a name no other type shares is safe.
             let owners: std::collections::HashSet<&str> = methods
                 .iter()
@@ -1038,7 +1188,8 @@ static DECLARATIONS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
         // const x = new Foo(…) / let x = Foo::new(…) / x = Foo(…) / $x = new Foo / var x = Foo{…}
         r"(?:\b(?:const|let|var|val|auto|my)\s+(?:mut\s+)?)?\$?(?P<name>[a-z_]\w*)\s*:?=\s*(?:new\s+|await\s+|&)?(?P<ty>[A-Z][\w]*)(?:<[^>()]*>)?(?:::\w+)?\s*[({]",
         // x: Foo / x: &mut Foo / x: Foo? (TS, Rust, Kotlin, Swift, Python, Scala, Dart params and fields)
-        r"\b(?P<name>[a-z_]\w*)\s*[?!]?:\s*(?:&\s*(?:mut\s+)?|\*)?(?P<ty>[A-Z][\w.]*)",
+        // A Python forward reference is quoted: `o: "Alpha"`.
+        r#"\b(?P<name>[a-z_]\w*)\s*[?!]?:\s*["']?(?:&\s*(?:mut\s+)?|\*)?(?P<ty>[A-Z][\w.]*)"#,
         // Foo x = … / Foo x; / Foo x, / Foo x) (Java, C#, C++, Dart)
         r"\b(?P<ty>[A-Z][\w.]*)(?:<[^>;()]*>)?(?:\s*\*|\s*&)?\s+(?P<name>[a-z_]\w*)\s*[=;,)]",
         // Go: var x Foo / x *Foo (params) / x pkg.Foo

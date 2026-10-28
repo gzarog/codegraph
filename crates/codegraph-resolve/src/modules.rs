@@ -400,7 +400,14 @@ impl Modules {
         let suffixes = [format!("/{rel}.py"), format!("/{rel}/__init__.py")];
         let mut found: Vec<&String> = syms
             .files()
-            .filter(|f| suffixes.iter().any(|s| f.ends_with(s.as_str())))
+            .filter(|f| {
+                suffixes.iter().any(|s| {
+                    // The directory above the module is a source root, not a
+                    // package: `backends/jinja2.py` is `backends.jinja2`.
+                    f.strip_suffix(s.as_str())
+                        .is_some_and(|root| !syms.file_exists(&format!("{root}/__init__.py")))
+                })
+            })
             .collect();
         found.sort_by_key(|f| std::cmp::Reverse(common_prefix_len(f, from)));
         found.first().map(|s| s.to_string())

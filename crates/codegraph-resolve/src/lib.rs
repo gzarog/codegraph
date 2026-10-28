@@ -32,7 +32,20 @@ const PAGE: usize = 5000;
 
 fn to_edge(r: &UnresolvedReference, syms: &Symbols, m: &matcher::Match) -> (Edge, String) {
     let target = syms.get(m.target);
-    let mut edge = Edge::new(&r.from_node_id, &target.id, r.reference_kind.edge_kind());
+    let mut kind = r.reference_kind.edge_kind();
+    // `Foo()` in a language without `new` is an instantiation once `Foo`
+    // turns out to be a class.
+    if kind == codegraph_core::EdgeKind::Calls
+        && matches!(
+            target.kind,
+            codegraph_core::NodeKind::Class
+                | codegraph_core::NodeKind::Struct
+                | codegraph_core::NodeKind::Union
+        )
+    {
+        kind = codegraph_core::EdgeKind::Instantiates;
+    }
+    let mut edge = Edge::new(&r.from_node_id, &target.id, kind);
     edge.line = Some(r.line);
     edge.column = Some(r.column);
     let mut meta = serde_json::json!({ "resolvedBy": m.strategy, "confidence": m.confidence });
