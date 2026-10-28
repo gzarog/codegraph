@@ -671,7 +671,11 @@ impl<'a> Matcher<'a> {
         }
         let files = self.modules.resolve(self.syms, file, lang, &b.module);
         if files.is_empty() {
-            return None;
+            // `from . import ledger` in a directory with no __init__.py.
+            let imported = b.imported.as_ref().filter(|_| lang == Language::Python)?;
+            let sub = format!("{}.{imported}", b.module.trim_end_matches('.'));
+            let files = self.modules.resolve(self.syms, file, lang, &sub);
+            return self.file_target(&files);
         }
         match &b.imported {
             None => self.file_target(&files),

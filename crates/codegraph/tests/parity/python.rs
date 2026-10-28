@@ -797,3 +797,167 @@ fn resolution_work() {
     want.sort();
     assert_eq!(callers, want);
 }
+
+fn docstrings(code: &str) -> std::collections::HashMap<String, Option<String>> {
+    codegraph_extract::extract_file("ledger.py", code, codegraph_core::Language::Python)
+        .nodes
+        .into_iter()
+        .map(|n| (n.name, n.docstring))
+        .collect()
+}
+
+const DOCSTRINGS: &str = include_str!("fixtures/docstrings.py");
+
+/// python-body-docstrings: module, decorated and async definitions, literal
+/// forms, dedenting, and what a docstring is not.
+#[test]
+fn body_docstrings() {
+    let lf = DOCSTRINGS.replace("\r\n", "\n");
+    for code in [lf.clone(), lf.replace('\n', "\r\n")] {
+        let d = docstrings(&code);
+        let get = |n: &str| d.get(n).unwrap_or_else(|| panic!("no {n}")).as_deref();
+        assert_eq!(get("ledger.py"), Some("Ledger module documentation."));
+        assert_eq!(
+            get("reconcile_ledger"),
+            Some("Legacy reconciliation path.\n\nSettle the nightly discrepancy with the bank.")
+        );
+        assert_eq!(
+            get("Ledger"),
+            Some("Ledger class comment.\n\nPost entries.\n\nPreserve relative indentation:\n    details here.")
+        );
+        assert_eq!(get("settle"), Some("Method comment.\n\nSettle the ledger."));
+        assert_eq!(get("raw_doc"), Some("Raw \\d+ expression."));
+        assert_eq!(get("empty_concat"), Some("Kept prose."));
+        assert_eq!(get("blank_comment"), Some("Kept despite blank comment."));
+        for name in [
+            "empty_doc",
+            "bytes_doc",
+            "raw_bytes_doc",
+            "formatted_doc",
+            "interpolated_doc",
+            "concatenated_bytes",
+            "concatenated_format",
+            "late_string",
+            "computed_string",
+            "tuple_string",
+            "bare_tuple",
+            "singleton_tuple",
+            "nested_string",
+        ] {
+            assert_eq!(get(name), None, "{name}");
+        }
+    }
+    assert_eq!(
+        docstrings("def tabbed():\n    \"\"\"Summary.\n\n\tDetails.\n\t    Nested.\n    \"\"\"\n")
+            ["tabbed"]
+            .as_deref(),
+        Some("Summary.\n\nDetails.\n    Nested.")
+    );
+    for src in [
+        "b\"bytes\"",
+        "f\"formatted\"",
+        "pass\n\"late\"",
+        "\"one\" + \"two\"",
+    ] {
+        assert_eq!(docstrings(src)["ledger.py"], None, "{src}");
+    }
+    let d = docstrings("\ndef reconcile_ledger():\n    \"\"\"Settle the nightly discrepancy with the bank.\"\"\"\n    return LEDGER\n\n# Settle the nightly discrepancy with the bank.\ndef audit_ledger():\n    return LEDGER\n");
+    for n in ["reconcile_ledger", "audit_ledger"] {
+        assert_eq!(
+            d[n].as_deref(),
+            Some("Settle the nightly discrepancy with the bank.")
+        );
+    }
+    let d = docstrings("\nclass Ledger:\n    \"\"\"Post entries to the general ledger.\n\n    Nightly reconciliation runs against the bank feed.\n    \"\"\"\n    pass\n");
+    assert_eq!(
+        d["Ledger"].as_deref(),
+        Some("Post entries to the general ledger.\n\nNightly reconciliation runs against the bank feed.")
+    );
+    let d = docstrings("\n# Legacy path, kept for the 2019 import.\ndef reconcile_ledger():\n    \"\"\"Settle the nightly discrepancy with the bank.\"\"\"\n    return LEDGER\n");
+    assert_eq!(
+        d["reconcile_ledger"].as_deref(),
+        Some("Legacy path, kept for the 2019 import.\n\nSettle the nightly discrepancy with the bank.")
+    );
+    let d = docstrings("\ndef with_single():\n    '''Single-quoted docstring.'''\n    return 1\n\ndef with_raw_prefix():\n    r\"\"\"Raw \\d+ docstring.\"\"\"\n    return 2\n");
+    assert_eq!(
+        d["with_single"].as_deref(),
+        Some("Single-quoted docstring.")
+    );
+    assert_eq!(d["with_raw_prefix"].as_deref(), Some("Raw \\d+ docstring."));
+    assert_eq!(
+        docstrings("\ndef interpolated(name):\n    f\"\"\"Hello {name}.\"\"\"\n    return name\n")
+            ["interpolated"],
+        None
+    );
+    assert_eq!(
+        docstrings("\ndef no_docstring():\n    total = 0\n    return total\n")["no_docstring"],
+        None
+    );
+}
+
+/// python-body-docstrings: the prose is searchable, exact names rank first,
+/// and `node` shows it before the source through MCP and the CLI.
+#[test]
+fn body_docstrings_persist() {
+    let p = Project::new(&[("ledger.py", DOCSTRINGS)]);
+    let root = p.root().to_path_buf();
+    drop(p.cg);
+    let cg = codegraph::project::CodeGraph::open(&root).unwrap();
+    assert_eq!(
+        cg.store().nodes_named("reconcile_ledger").unwrap()[0]
+            .docstring
+            .as_deref(),
+        Some("Legacy reconciliation path.\n\nSettle the nightly discrepancy with the bank.")
+    );
+    let search = |q: &str| {
+        cg.store()
+            .search_nodes(q, &codegraph_core::SearchOptions::default())
+            .unwrap()
+    };
+    let names: Vec<String> = search("discrepancy bank")
+        .into_iter()
+        .map(|r| r.node.name)
+        .collect();
+    assert_has(&names, "reconcile_ledger");
+    assert_has(&names, "audit_ledger");
+    assert_eq!(search("reconcile_ledger")[0].node.name, "reconcile_ledger");
+    assert!(search("documentation")
+        .iter()
+        .any(|r| r.node.kind == codegraph_core::NodeKind::File && r.node.name == "ledger.py"));
+    let mut server = codegraph::mcp::Server::new(Some(root.clone()), false);
+    let out = server.call_tool(
+        "codegraph_node",
+        &serde_json::json!({ "symbol": "reconcile_ledger", "includeCode": true }),
+    );
+    assert_ne!(out["isError"], serde_json::json!(true));
+    let text = out["content"][0]["text"].as_str().unwrap();
+    let prose = "Settle the nightly discrepancy with the bank.";
+    assert!(text.split("```").next().unwrap().contains(prose), "{text}");
+    let cli = std::process::Command::new(env!("CARGO_BIN_EXE_codegraph"))
+        .args(["node", "reconcile_ledger", "--path"])
+        .arg(&root)
+        .output()
+        .unwrap();
+    let cli = String::from_utf8_lossy(&cli.stdout);
+    assert!(cli.split("```").next().unwrap().contains(prose), "{cli}");
+}
+
+/// kernel-python-call-fabrication: a module-qualified call resolves; a
+/// chained or subscripted receiver fabricates nothing.
+#[test]
+fn call_fabrication() {
+    let p = Project::new(&[
+        ("ledger.py", "def append(row):\n    return True\n\n\ndef path():\n    return \"ledger.jsonl\"\n"),
+        ("record.py", "from . import ledger\n\n\ndef add_outcome(row):\n    if not ledger.append(row):\n        return None\n    return ledger.path()\n"),
+        ("unrelated.py", "class Box:\n    def __init__(self):\n        self.data = []\n\n    def build_map(self):\n        self.data.append({\"x\": 1})\n        rows = {}\n        rows[\"k\"] = []\n        rows[\"k\"].append(2)\n        return rows\n"),
+    ]);
+    let append = p
+        .named("append")
+        .into_iter()
+        .find(|n| n.file_path == "ledger.py")
+        .unwrap();
+    assert!(p
+        .callee_ids(&p.function("add_outcome"))
+        .contains(&append.id));
+    assert!(!p.callee_ids(&p.callable("build_map")).contains(&append.id));
+}
