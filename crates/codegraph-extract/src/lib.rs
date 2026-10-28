@@ -32,6 +32,7 @@ mod csharp;
 mod dart;
 mod decode;
 mod docstring;
+mod generic;
 mod go;
 mod ids;
 mod java;
@@ -64,6 +65,7 @@ pub(crate) fn note_parse_errors() {
 }
 
 pub use decode::decode;
+pub use generic::debug_tree;
 pub use langs::grammar_for;
 
 /// The languages this crate has a walker for.
@@ -83,6 +85,7 @@ pub fn supports(language: Language) -> bool {
                 | Language::Liquid
                 | Language::Razor
         )
+        || generic::spec_for(language).is_some()
         || lite::supports(language)
 }
 
@@ -101,6 +104,10 @@ pub fn extract_file(file_path: &str, content: &str, language: Language) -> Extra
         Language::ArkTs => return sfc::extract_arkts(file_path, content),
         Language::Liquid => return sfc::extract_liquid(file_path, content),
         Language::Razor => return sfc::extract_razor(file_path, content),
+        l if generic::spec_for(l).is_some() => {
+            let spec = generic::spec_for(l).unwrap();
+            return generic::extract(file_path, content, l, spec);
+        }
         l if lite::supports(l) => return lite::extract(file_path, content, l),
         _ => {}
     }

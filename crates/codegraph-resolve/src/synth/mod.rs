@@ -11,6 +11,7 @@ mod backend;
 mod callbacks;
 mod go;
 mod js;
+mod modules;
 mod native;
 mod tier;
 mod types;
@@ -327,6 +328,8 @@ const PASSES: &[(&str, Pass)] = &[
     ("mediatr", backend::mediatr),
     ("sidekiq", backend::sidekiq),
     ("laravel-event", backend::laravel_events),
+    ("erlang-behaviour", modules::erlang_behaviours),
+    ("nix-option", modules::nix_options),
     ("rn-event", native::rn_events),
     ("fabric-native", native::fabric_native),
 ];

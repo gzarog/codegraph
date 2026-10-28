@@ -54,6 +54,18 @@ tree-sitter-r = "=1.2.0"
 # vendored C (build.rs) — its v0.4.1 revision is not on crates.io.
 tree-sitter-luau = "=1.2.0"
 
+# Grammars for the languages upstream parses with its generic tree-sitter
+# walker (src/extraction/tree-sitter.ts + languages/*.ts); here they feed
+# the config-driven walker in src/generic/.
+tree-sitter-pascal = "=0.10.2"
+tree-sitter-solidity = "=1.2.13"
+tree-sitter-hcl = "=1.1.0"
+tree-sitter-nix = "=0.3.0"
+tree-sitter-erlang = "=0.21.0"
+tree-sitter-objc = "=3.0.2"
+tree-sitter-cfml = "=0.26.43"
+tree-sitter-arkts = "=0.3.0"
+
 # tree-sitter-language: the version-agnostic LanguageFn shim for the vendored
 # grammar C (kotlin, lua, scala, dart, swift — see build.rs).
 tree-sitter-language = "0.1"

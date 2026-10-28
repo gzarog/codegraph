@@ -245,7 +245,7 @@ fn dynamic_dispatch_is_joined() {
 }
 
 #[test]
-fn lite_languages_resolve_across_files() {
+fn grammar_and_pattern_languages_resolve_across_files() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     write(
@@ -299,8 +299,8 @@ fn lite_languages_resolve_across_files() {
         "terraform resource ref"
     );
     assert!(
-        file_refs("main.tf", "region", EdgeKind::References),
-        "terraform var across files"
+        file_refs("aws", "region", EdgeKind::References),
+        "terraform var across files, from the provider block"
     );
     assert!(
         file_refs("Token", "Base", EdgeKind::Extends),

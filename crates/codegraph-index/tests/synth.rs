@@ -393,3 +393,44 @@ fn go_function_fields() {
         Some("go-func-field")
     );
 }
+
+#[test]
+fn erlang_behaviours_and_nix_options() {
+    let (_d, store) = index(&[
+        (
+            "src/handler.erl",
+            "-module(handler).\n-callback init(term(), term()) -> ok.\n",
+        ),
+        (
+            "src/hello.erl",
+            "-module(hello).\n-behaviour(handler).\n-export([init/2]).\ninit(Req, Opts) -> {ok, Req, Opts}.\n",
+        ),
+        (
+            "src/router.erl",
+            "-module(router).\n-export([execute/2]).\nexecute(Handler, Req) -> Handler:init(Req, []).\n",
+        ),
+        (
+            "modules/yabai.nix",
+            "{ lib, ... }:\n{\n  options.services.yabai.enable = lib.mkEnableOption \"yabai\";\n}\n",
+        ),
+        (
+            "hosts/mac.nix",
+            "{ ... }:\n{\n  services.yabai.enable = true;\n}\n",
+        ),
+    ]);
+    assert_eq!(
+        synth(&store, "execute", "init").as_deref(),
+        Some("erlang-behaviour")
+    );
+    let write = store
+        .nodes_named("services.yabai.enable")
+        .unwrap()
+        .into_iter()
+        .find(|n| n.file_path == "hosts/mac.nix")
+        .unwrap();
+    let edges = store
+        .outgoing_edges(&write.id, &[EdgeKind::References])
+        .unwrap();
+    let target = store.node(&edges[0].target).unwrap().unwrap();
+    assert_eq!(target.file_path, "modules/yabai.nix");
+}

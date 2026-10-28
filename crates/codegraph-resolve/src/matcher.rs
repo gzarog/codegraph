@@ -73,7 +73,8 @@ fn kind_accepts(kind: ReferenceKind, target: NodeKind) -> bool {
         ),
         R::Implements => matches!(
             target,
-            N::Interface | N::Trait | N::Protocol | N::Class | N::Module | N::Struct
+            // An Erlang behaviour is a module (namespace).
+            N::Interface | N::Trait | N::Protocol | N::Class | N::Module | N::Struct | N::Namespace
         ),
         R::TypeOf | R::Returns => {
             target.is_type() || matches!(target, N::Enum | N::Namespace | N::Module)
@@ -326,6 +327,11 @@ impl<'a> Matcher<'a> {
         if kind == ReferenceKind::Imports {
             return self.resolve_import(file, lang, name);
         }
+        if lang == Language::Erlang {
+            if let Some(m) = self.resolve_erlang(file, kind, name) {
+                return Some(m);
+            }
+        }
         let name = clean(name);
         if name.is_empty() {
             return None;
@@ -336,6 +342,39 @@ impl<'a> Matcher<'a> {
             }
             _ => self.resolve_simple(from, file, lang, kind, &name),
         }
+    }
+
+    /// An Erlang function reference carries its arity: `helper/1` is this
+    /// module's (or an imported) `helper` of arity 1, `lists::map/2` that
+    /// module's. A name without arity falls through to the generic steps.
+    fn resolve_erlang(&mut self, file: &str, kind: ReferenceKind, name: &str) -> Option<Match> {
+        let (path, arity) = name.rsplit_once('/')?;
+        if arity.is_empty() || !arity.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let base = path.rsplit("::").next().unwrap_or(path);
+        let qualified = format!("{path}/{arity}");
+        let hits: Vec<SymId> = self
+            .syms
+            .named_for(base, Language::Erlang)
+            .iter()
+            .copied()
+            .filter(|&i| {
+                let s = self.syms.get(i);
+                s.language == Language::Erlang
+                    && s.kind.is_callable()
+                    && (s.qualified_name == qualified
+                        || s.qualified_name.ends_with(&format!("::{qualified}")))
+            })
+            .collect();
+        if path.contains("::") {
+            return self.pick_closest(&hits, file, kind, "qualified", "qualified");
+        }
+        // A local call: this module's first.
+        if let Some(&own) = hits.iter().find(|&&i| self.syms.get(i).file == file) {
+            return Some(Match::new(own, "same-file", 0.95));
+        }
+        self.pick_closest(&hits, file, kind, "name-match", "name-match")
     }
 
     // ------------------------------------------------------------- imports

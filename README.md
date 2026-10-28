@@ -98,10 +98,10 @@ Python, Go, Rust, Java, Kotlin, Scala, C, C++, C#, PHP, Ruby, Swift, Dart, Lua,
 Luau and R. Svelte, Vue and Astro components (script blocks, template
 component tags and event handlers), ArkTS, Liquid (render/include/section)
 and Razor (`@using`, `@inject`, component tags) are extracted too.
-Objective-C, Pascal/Delphi, Solidity, Terraform/HCL, Nix, Erlang, COBOL,
-VB.NET and CFML use lighter pattern-based extractors (declarations, imports,
-inheritance and call sites) without a bundled grammar. Other recognized
-files are tracked as files.
+Objective-C, Pascal/Delphi, Solidity, Terraform/HCL, Nix, Erlang and CFML
+are parsed with their tree-sitter grammars by a config-driven walker.
+COBOL and VB.NET use lighter pattern-based extractors (declarations, imports,
+inheritance and call sites). Other recognized files are tracked as files.
 
 Framework routes become `route` nodes linked to their handlers: Express, Koa,
 Fastify, Hono, NestJS, Next.js, SvelteKit, Nuxt, Astro, Expo Router, Remix,
