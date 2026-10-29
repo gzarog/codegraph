@@ -8,30 +8,46 @@ use super::*;
 /// The template arguments the C++ function `n` is an explicit specialization for.
 pub fn cpp_specialization_arguments(ctx: &Ctx, n: SymId) -> Option<Vec<String>> {
     let s = ctx.sym(n);
-    if s.language != Language::Cpp
-        || !matches!(s.kind, NodeKind::Function | NodeKind::Method)
-        || s.signature.as_deref().is_some_and(|g| g.starts_with('('))
-    {
+    if s.language != Language::Cpp || !matches!(s.kind, NodeKind::Function | NodeKind::Method) {
         return None;
     }
     ctx.memo(memo::NM, format!("sa\0{n}"), || {
-        let head = match s.signature.as_deref().filter(|g| !g.is_empty()) {
-            Some(sig) => sig.to_string(),
-            None => {
-                let src = ctx.source(&s.file);
-                src.map(|src| {
-                    let from = (s.start_line as usize)
-                        .saturating_sub(1)
-                        .min(src.lines.len());
-                    let to = (s.start_line as usize + 11).min(src.lines.len());
-                    js::slice_from(&src.lines[from..to].join("\n"), s.start_column as usize)
-                        .to_string()
-                })
-                .unwrap_or_default()
-            }
-        };
-        cpp_template_arguments_after(ctx, &head, &s.name, 0)
+        cpp_declared_specialization_arguments(
+            ctx,
+            s.signature.as_deref(),
+            &s.file,
+            s.start_line,
+            s.start_column,
+            &s.name,
+        )
     })
+}
+
+/// cppSpecializationArguments for a C++ function or method declared at
+/// `file`:`line`:`column` (read off its signature when it has one).
+pub fn cpp_declared_specialization_arguments(
+    ctx: &Ctx,
+    signature: Option<&str>,
+    file: &str,
+    line: u32,
+    column: u32,
+    name: &str,
+) -> Option<Vec<String>> {
+    if signature.is_some_and(|g| g.starts_with('(')) {
+        return None;
+    }
+    let head = match signature.filter(|g| !g.is_empty()) {
+        Some(sig) => sig.to_string(),
+        None => ctx
+            .source(file)
+            .map(|src| {
+                let from = (line as usize).saturating_sub(1).min(src.lines.len());
+                let to = (line as usize + 11).min(src.lines.len());
+                js::slice_from(&src.lines[from..to].join("\n"), column as usize).to_string()
+            })
+            .unwrap_or_default(),
+    };
+    cpp_template_arguments_after(ctx, &head, name, 0)
 }
 
 /// The template arguments the C++ call at `r` writes after the name it calls.

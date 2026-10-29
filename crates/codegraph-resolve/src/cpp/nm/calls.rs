@@ -1512,7 +1512,7 @@ pub fn cpp_qualifier_specialization_pool(ctx: &Ctx, candidates: &[SymId], r: &Re
 }
 
 /// The template arguments a call writes on the qualifier before its name.
-fn cpp_qualifier_arguments(ctx: &Ctx, r: &Ref) -> Option<Vec<String>> {
+pub fn cpp_qualifier_arguments(ctx: &Ctx, r: &Ref) -> Option<Vec<String>> {
     let segments: Vec<&str> = r.name.split("::").collect();
     if segments.len() < 2 {
         return None;

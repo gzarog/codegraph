@@ -408,6 +408,23 @@ fn base_methods(ctx: &Ctx<'_>, base: usize) -> Vec<usize> {
 /// A base or interface method reaches each subtype method that overrides it.
 pub fn overrides(ctx: &Ctx<'_>, out: &mut Vec<Proposal>) {
     let mut sink = Sink::new(out);
+    // An explicit specialization of a C++ member template, which shares the
+    // template's name, overrides nothing and is overridden by nothing.
+    let no_symbols = crate::symbols::Symbols::default();
+    let cpp = crate::cpp::Ctx::new(&no_symbols, ctx.root);
+    let overridable = |m: usize| {
+        let n = ctx.node(m);
+        n.language != Language::Cpp
+            || crate::cpp::nm::cpp_declared_specialization_arguments(
+                &cpp,
+                n.signature.as_deref(),
+                &n.file_path,
+                n.start_line,
+                n.start_column,
+                &n.name,
+            )
+            .is_none()
+    };
     let mut promoted: Vec<(usize, Vec<usize>, usize)> = Vec::new();
     for cls in 0..ctx.nodes.len() {
         let c = ctx.node(cls);
@@ -423,7 +440,8 @@ pub fn overrides(ctx: &Ctx<'_>, out: &mut Vec<Proposal>) {
         if sups.is_empty() {
             continue;
         }
-        let impls = ctx.methods_of(cls);
+        let mut impls = ctx.methods_of(cls);
+        impls.retain(|&m| overridable(m));
         let go_struct = c.language == Language::Go && c.kind == NodeKind::Struct;
         if impls.is_empty() && !(go_struct && sups.iter().any(|s| s.1)) {
             continue;
@@ -452,6 +470,9 @@ pub fn overrides(ctx: &Ctx<'_>, out: &mut Vec<Proposal>) {
             let mut added = 0;
             let mut unmatched = Vec::new();
             for bm in base_methods(ctx, base) {
+                if !overridable(bm) {
+                    continue;
+                }
                 let Some(ms) = by_key.get(&key(bm)) else {
                     if go_struct && synthesized {
                         unmatched.push(bm);

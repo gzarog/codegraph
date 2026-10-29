@@ -16,6 +16,8 @@ pub mod macro_vis;
 pub mod namespaces;
 pub mod nm;
 pub mod raw_strings;
+pub mod resolve;
 pub mod supertypes;
 
 pub use ctx::{Ctx, Ref};
+pub use resolve::resolve;

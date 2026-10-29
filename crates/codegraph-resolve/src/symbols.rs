@@ -75,6 +75,7 @@ pub fn case_insensitive(lang: Language) -> bool {
     )
 }
 
+#[derive(Default)]
 pub struct Symbols {
     pub syms: Vec<Sym>,
     by_id: HashMap<String, SymId>,

@@ -25,6 +25,7 @@ mod decl;
 mod infer;
 mod locals;
 mod members;
+mod method_call;
 mod strategies;
 mod unit;
 
@@ -34,6 +35,7 @@ pub use decl::*;
 pub use infer::*;
 pub use locals::*;
 pub use members::*;
+pub use method_call::*;
 pub use strategies::*;
 pub use unit::*;
 
