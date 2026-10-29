@@ -26,6 +26,9 @@ pub struct Sym {
     pub visibility: Option<codegraph_core::Visibility>,
     /// A callable's signature (`(&self, x: u8) -> Out`).
     pub signature: Option<String>,
+    pub end_column: u32,
+    pub return_type: Option<String>,
+    pub is_static: bool,
 }
 
 impl Sym {
@@ -72,12 +75,14 @@ pub fn case_insensitive(lang: Language) -> bool {
     )
 }
 
+#[derive(Default)]
 pub struct Symbols {
     pub syms: Vec<Sym>,
     by_id: HashMap<String, SymId>,
     by_name: HashMap<String, Vec<SymId>>,
     by_lower: HashMap<String, Vec<SymId>>,
     by_file: HashMap<String, Vec<SymId>>,
+    by_qualified: HashMap<String, Vec<SymId>>,
     /// Owner qualified name → member symbols.
     members: HashMap<String, Vec<SymId>>,
     files: HashSet<String>,
@@ -99,6 +104,7 @@ impl Symbols {
             by_name: HashMap::new(),
             by_lower: HashMap::new(),
             by_file: HashMap::new(),
+            by_qualified: HashMap::new(),
             members: HashMap::new(),
             files: HashSet::new(),
             files_lower: HashMap::new(),
@@ -137,6 +143,10 @@ impl Symbols {
             .entry(n.file_path.clone())
             .or_default()
             .push(idx);
+        self.by_qualified
+            .entry(n.qualified_name.clone())
+            .or_default()
+            .push(idx);
         if let Some((owner, _)) = n.qualified_name.rsplit_once("::") {
             if n.kind != NodeKind::File {
                 self.members.entry(owner.to_string()).or_default().push(idx);
@@ -159,6 +169,9 @@ impl Symbols {
             },
             local: false,
             start_column: n.start_column,
+            end_column: n.end_column,
+            return_type: n.return_type,
+            is_static: n.is_static,
             visibility: n.visibility,
             signature: if n.kind == NodeKind::Import {
                 None
@@ -237,6 +250,14 @@ impl Symbols {
         } else {
             self.named(name)
         }
+    }
+
+    /// Symbols whose qualified name is exactly `qname`, in index order.
+    pub fn by_qualified(&self, qname: &str) -> &[SymId] {
+        self.by_qualified
+            .get(qname)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
     }
 
     pub fn in_file(&self, file: &str) -> &[SymId] {

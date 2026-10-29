@@ -1,6 +1,7 @@
 //! Cross-file reference resolution: turns the references extraction found
 //! into edges between symbols.
 
+pub mod cpp;
 pub mod dispatch;
 pub mod imports;
 pub mod matcher;
@@ -39,7 +40,7 @@ fn as_decimal(x: f32) -> f64 {
 
 fn to_edge(r: &UnresolvedReference, syms: &Symbols, m: &matcher::Match) -> (Edge, String) {
     let target = syms.get(m.target);
-    let mut edge = Edge::new(&r.from_node_id, &target.id, r.reference_kind.edge_kind());
+    let mut edge = Edge::new(&r.from_node_id, &target.id, edge_kind(r, target));
     edge.line = Some(r.line);
     edge.column = Some(r.column);
     let mut meta = serde_json::json!({
@@ -57,6 +58,45 @@ fn to_edge(r: &UnresolvedReference, syms: &Symbols, m: &matcher::Match) -> (Edge
         Provenance::TreeSitter
     });
     (edge, target.file.clone())
+}
+
+/// The edge a resolved reference makes: a call whose target is a type is a
+/// Go conversion or a Pascal typecast (a reference), else an instantiation.
+fn edge_kind(r: &UnresolvedReference, target: &symbols::Sym) -> codegraph_core::EdgeKind {
+    use codegraph_core::{EdgeKind, Language, NodeKind};
+    let kind = r.reference_kind.edge_kind();
+    if kind != EdgeKind::Calls {
+        return kind;
+    }
+    let lang = r.language.unwrap_or(target.language);
+    if lang == Language::Go
+        && matches!(
+            target.kind,
+            NodeKind::Struct | NodeKind::Interface | NodeKind::TypeAlias
+        )
+    {
+        return EdgeKind::References;
+    }
+    if lang == Language::Pascal
+        && !r.reference_name.contains('.')
+        && matches!(
+            target.kind,
+            NodeKind::Class
+                | NodeKind::Struct
+                | NodeKind::Interface
+                | NodeKind::Enum
+                | NodeKind::TypeAlias
+        )
+    {
+        return EdgeKind::References;
+    }
+    if matches!(
+        target.kind,
+        NodeKind::Class | NodeKind::Struct | NodeKind::Union
+    ) {
+        return EdgeKind::Instantiates;
+    }
+    kind
 }
 
 /// Resolve every pending reference in the store.
@@ -111,8 +151,9 @@ pub fn resolve_pending(
         {
             let mut matcher = Matcher::new(&syms, &modules, root);
             let rust = rust::Ctx::new(&syms, root);
+            let cpp = cpp::Ctx::new(&syms, root);
             for r in &supers {
-                match resolve_one(&mut matcher, &rust, &syms, r) {
+                match resolve_one(&mut matcher, &rust, &cpp, &syms, r) {
                     Some(m) => {
                         if let Some(from) = syms.by_id(&r.from_node_id) {
                             new_supers.push((from, m.target));
@@ -132,11 +173,20 @@ pub fn resolve_pending(
 
     let mut matcher = Matcher::new(&syms, &modules, root);
     let rust = rust::Ctx::new(&syms, root);
+    let cpp = cpp::Ctx::new(&syms, root);
     for (i, r) in rest.iter().enumerate() {
         let handler = dispatch::bind_handler(r);
         let m = match handler {
-            Some(h) => resolve_named(&mut matcher, &rust, &syms, r, ReferenceKind::References, h),
-            None => resolve_one(&mut matcher, &rust, &syms, r),
+            Some(h) => resolve_named(
+                &mut matcher,
+                &rust,
+                &cpp,
+                &syms,
+                r,
+                ReferenceKind::References,
+                h,
+            ),
+            None => resolve_one(&mut matcher, &rust, &cpp, &syms, r),
         };
         match m {
             Some(m) => {
@@ -191,15 +241,25 @@ pub fn resolve_pending(
 fn resolve_one(
     matcher: &mut Matcher<'_>,
     rust: &rust::Ctx<'_>,
+    cpp: &cpp::Ctx<'_>,
     syms: &Symbols,
     r: &UnresolvedReference,
 ) -> Option<matcher::Match> {
-    resolve_named(matcher, rust, syms, r, r.reference_kind, &r.reference_name)
+    resolve_named(
+        matcher,
+        rust,
+        cpp,
+        syms,
+        r,
+        r.reference_kind,
+        &r.reference_name,
+    )
 }
 
 fn resolve_named(
     matcher: &mut Matcher<'_>,
     rust: &rust::Ctx<'_>,
+    cpp: &cpp::Ctx<'_>,
     syms: &Symbols,
     r: &UnresolvedReference,
     kind: ReferenceKind,
@@ -221,6 +281,20 @@ fn resolve_named(
             kind,
         };
         rust.resolve(&rr, &mut |n| matcher.resolve(from, &file, lang, kind, n))?
+    } else if matches!(
+        lang,
+        codegraph_core::Language::C | codegraph_core::Language::Cpp
+    ) {
+        let cr = cpp::Ref {
+            from,
+            file: file.clone(),
+            line: r.line,
+            column: r.column,
+            name: name.to_string(),
+            kind,
+            lang,
+        };
+        cpp::resolve(cpp, &cr)?
     } else {
         matcher.resolve(from, &file, lang, kind, name)?
     };
