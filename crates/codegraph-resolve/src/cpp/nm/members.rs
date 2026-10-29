@@ -47,7 +47,7 @@ fn data_member_uncached(ctx: &Ctx, decl: SymId, name: &str) -> Option<WrittenTyp
             &raw_strings::literals_blanked(&lines[l - 1], l, &raw_lines),
         );
         let mut from = l;
-        let mut m = code.as_deref().and_then(&declared);
+        let mut m = code.as_deref().and_then(declared);
         if m.is_none() && code.is_some() && l > d.start_line as usize {
             if let Some(above) = cpp_code_of(
                 ctx,
