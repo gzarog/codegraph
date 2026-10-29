@@ -174,7 +174,7 @@ const CPP_BUILT_INS: &[&str] = &[
 ];
 
 /// `hasAnyPossibleMatch`: does any node carry the name, or a part of it a strategy reads?
-fn has_any_possible_match(ctx: &Ctx, name: &str) -> bool {
+pub fn has_any_possible_match(ctx: &Ctx, name: &str) -> bool {
     let known = |n: &str| !ctx.named(n).is_empty();
     if known(name) {
         return true;
@@ -373,7 +373,7 @@ pub fn match_reference(ctx: &Ctx, r: &Ref) -> Option<Match> {
 }
 
 /// `otherSupertypeNamed`: the supertype an inheritance ref names when the name is the declaring type's own.
-fn other_supertype_named(ctx: &Ctx, r: &Ref) -> Option<Match> {
+pub fn other_supertype_named(ctx: &Ctx, r: &Ref) -> Option<Match> {
     let name = r.name.rsplit("::").next().unwrap_or(&r.name);
     let name = name.rsplit('.').next().unwrap_or(name);
     let line = ctx.line(&r.file, r.line);
@@ -449,7 +449,7 @@ fn other_supertype_named(ctx: &Ctx, r: &Ref) -> Option<Match> {
 }
 
 /// `gateTargetKind`, for a C or C++ reference.
-fn gate_target_kind(ctx: &Ctx, m: Option<Match>, r: &Ref) -> Option<Match> {
+pub fn gate_target_kind(ctx: &Ctx, m: Option<Match>, r: &Ref) -> Option<Match> {
     let m = m?;
     if r.kind == ReferenceKind::Calls && is_define_constant(ctx, m.target) {
         return None;
@@ -492,7 +492,7 @@ fn gate_target_kind(ctx: &Ctx, m: Option<Match>, r: &Ref) -> Option<Match> {
 }
 
 /// The declarations around a line of a file whose kind declares type parameters.
-fn enclosing_declarations(ctx: &Ctx, file: &str, line: u32) -> Vec<SymId> {
+pub fn enclosing_declarations(ctx: &Ctx, file: &str, line: u32) -> Vec<SymId> {
     ctx.in_file(file)
         .iter()
         .copied()
@@ -517,11 +517,11 @@ fn enclosing_declarations(ctx: &Ctx, file: &str, line: u32) -> Vec<SymId> {
         .collect()
 }
 
-fn is_opener(c: u8) -> bool {
+pub fn is_opener(c: u8) -> bool {
     matches!(c, b'[' | b'(' | b'<')
 }
 
-fn is_closer(c: u8, previous: u8) -> bool {
+pub fn is_closer(c: u8, previous: u8) -> bool {
     c == b']' || c == b')' || (c == b'>' && previous != b'-' && previous != b'=')
 }
 
@@ -652,7 +652,7 @@ fn gate_type_parameter(ctx: &Ctx, m: Option<Match>, r: &Ref) -> Option<Match> {
 }
 
 /// `gateSuperSelfCall`.
-fn gate_super_self_call(ctx: &Ctx, m: Option<Match>, r: &Ref) -> Option<Match> {
+pub fn gate_super_self_call(ctx: &Ctx, m: Option<Match>, r: &Ref) -> Option<Match> {
     let m = m?;
     if r.kind != ReferenceKind::Calls || m.target != r.from {
         return Some(m);
@@ -674,7 +674,7 @@ fn gate_super_self_call(ctx: &Ctx, m: Option<Match>, r: &Ref) -> Option<Match> {
 }
 
 /// alias-binding.ts `resolveAliasBinding`, for a C or C++ target.
-fn resolve_alias_binding(ctx: &Ctx, alias: SymId, member: Option<&str>) -> Option<SymId> {
+pub fn resolve_alias_binding(ctx: &Ctx, alias: SymId, member: Option<&str>) -> Option<SymId> {
     let a = ctx.sym(alias);
     if !matches!(
         a.kind,

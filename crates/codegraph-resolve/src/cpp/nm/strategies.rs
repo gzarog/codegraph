@@ -130,7 +130,7 @@ pub fn closest_copy(ctx: &Ctx, r: &Ref, candidates: &[SymId]) -> Option<SymId> {
 }
 
 /// `isDecisiveSameFileMatch`.
-fn is_decisive_same_file_match(ctx: &Ctx, best: SymId, r: &Ref, candidates: &[SymId]) -> bool {
+pub fn is_decisive_same_file_match(ctx: &Ctx, best: SymId, r: &Ref, candidates: &[SymId]) -> bool {
     let b = ctx.sym(best);
     if b.file != r.file || best == r.from {
         return false;
@@ -177,7 +177,7 @@ pub fn is_define_constant(ctx: &Ctx, n: SymId) -> bool {
         )
 }
 
-fn is_supertype_target(ctx: &Ctx, n: SymId) -> bool {
+pub fn is_supertype_target(ctx: &Ctx, n: SymId) -> bool {
     let s = ctx.sym(n);
     matches!(
         s.kind,
@@ -195,11 +195,11 @@ fn is_supertype_target(ctx: &Ctx, n: SymId) -> bool {
     ) && !(s.language == Language::Scala && s.kind == NodeKind::Module)
 }
 
-fn is_inheritance_ref(r: &Ref) -> bool {
+pub fn is_inheritance_ref(r: &Ref) -> bool {
     matches!(r.kind, ReferenceKind::Extends | ReferenceKind::Implements)
 }
 
-fn is_importable_kind(k: NodeKind) -> bool {
+pub fn is_importable_kind(k: NodeKind) -> bool {
     !matches!(
         k,
         NodeKind::Property
@@ -286,7 +286,7 @@ pub fn match_by_exact_name(ctx: &Ctx, r: &Ref) -> Option<Match> {
     Some(Match::new(best, "exact-match", confidence))
 }
 
-fn ends_at_scope_boundary(qn: &str, name: &str) -> bool {
+pub fn ends_at_scope_boundary(qn: &str, name: &str) -> bool {
     if qn == name {
         return true;
     }
@@ -493,7 +493,7 @@ pub fn match_function_ref(ctx: &Ctx, r: &Ref) -> Option<Match> {
 }
 
 /// `nodes.reduce((a, b) => a.startLine <= b.startLine ? a : b)`.
-fn first_by_line(ctx: &Ctx, nodes: &[SymId]) -> SymId {
+pub fn first_by_line(ctx: &Ctx, nodes: &[SymId]) -> SymId {
     let mut best = nodes[0];
     for &n in &nodes[1..] {
         if ctx.sym(best).start_line > ctx.sym(n).start_line {
