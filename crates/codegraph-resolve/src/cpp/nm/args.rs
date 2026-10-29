@@ -1088,9 +1088,18 @@ fn overload_set_of(ctx: &Ctx, id: SymId) -> Option<OverloadSet> {
 }
 
 /// A call a method makes to its own name, with arguments its parameters
-/// cannot take, is to another overload of it (retargetSelfOverload, for C++).
+/// cannot take, is to another overload of it (retargetSelfOverload). A C++
+/// overload set is only trusted for a method's call to itself; Swift's
+/// argument-label reading isn't ported.
 pub fn retarget_self_overload(ctx: &Ctx, m: Match, r: &Ref) -> Match {
-    if r.kind != ReferenceKind::Calls || r.lang != Language::Cpp || m.target != r.from {
+    use Language::*;
+    if r.kind != ReferenceKind::Calls
+        || !matches!(
+            r.lang,
+            CSharp | Java | Kotlin | Cpp | Scala | Dart | VbNet | Solidity
+        )
+        || (r.lang == Cpp && m.target != r.from)
+    {
         return m;
     }
     let Some(set) = overload_set_of(ctx, m.target) else {

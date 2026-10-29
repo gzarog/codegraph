@@ -2,6 +2,7 @@
 //! into edges between symbols.
 
 pub mod cpp;
+pub mod csharp;
 pub mod dispatch;
 pub mod imports;
 pub mod matcher;
@@ -295,6 +296,17 @@ fn resolve_named(
             lang,
         };
         cpp::resolve(cpp, &cr)?
+    } else if lang == codegraph_core::Language::CSharp {
+        let cr = cpp::Ref {
+            from,
+            file: file.clone(),
+            line: r.line,
+            column: r.column,
+            name: name.to_string(),
+            kind,
+            lang,
+        };
+        csharp::resolve(cpp, &cr)?
     } else {
         matcher.resolve(from, &file, lang, kind, name)?
     };
