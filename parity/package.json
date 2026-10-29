@@ -1,0 +1,12 @@
+{
+  "name": "codegraph-parity",
+  "private": true,
+  "description": "Runs upstream CodeGraph's own test suite against the Rust port.",
+  "type": "module",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "devDependencies": {
+    "vitest": "3.2.4"
+  }
+}

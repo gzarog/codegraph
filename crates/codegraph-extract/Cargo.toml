@@ -11,7 +11,8 @@ codegraph-core.workspace = true
 serde_json.workspace = true
 tree-sitter = "0.25"
 sha2 = "0.10"
-regex = "1"
+regex.workspace = true
+fancy-regex.workspace = true
 
 # Grammars — MUST stay revision-matched with the wasm grammars the fallback
 # path loads (tree-sitter-wasms npm package / src/extraction/wasm/). The

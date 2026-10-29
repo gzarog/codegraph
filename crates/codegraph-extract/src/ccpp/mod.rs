@@ -87,6 +87,8 @@ use std::sync::OnceLock;
 use tree_sitter::{Node, Parser};
 
 mod brace_scopes;
+pub(crate) mod macro_methods;
+pub(crate) mod preparse;
 use brace_scopes::{BraceScopes, NestedIntervals};
 
 const MAX_VALUE_REF_NODES: usize = 20_000;
@@ -302,7 +304,7 @@ fn is_literal_receiver(kind: &str) -> bool {
 
 /// stripCppTemplateArgs (languages/c-cpp.ts): depth-counted removal of every
 /// balanced `<…>` group; `<` and `>` never reach the output.
-fn strip_cpp_template_args(name: &str) -> String {
+pub(crate) fn strip_cpp_template_args(name: &str) -> String {
     if !name.contains('<') {
         return name.to_string();
     }
@@ -322,7 +324,7 @@ fn strip_cpp_template_args(name: &str) -> String {
 
 /// recoverMangledCppName (languages/c-cpp.ts) — universal post-hoc salvage for
 /// a name still mangled by an unblanked macro ("Ret name" → "name").
-fn recover_mangled_cpp_name(name: String) -> String {
+pub(crate) fn recover_mangled_cpp_name(name: String) -> String {
     if !name.chars().any(|c| c.is_whitespace())
         || name.starts_with("operator")
         || name.starts_with('~')
@@ -349,7 +351,7 @@ fn recover_mangled_cpp_name(name: String) -> String {
 }
 
 /// normalizeCppReturnType (languages/c-cpp.ts).
-fn normalize_cpp_return_type(raw: &str) -> Option<String> {
+pub(crate) fn normalize_cpp_return_type(raw: &str) -> Option<String> {
     let mut t = raw.trim().to_string();
     if t.is_empty() {
         return None;

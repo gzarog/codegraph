@@ -279,6 +279,27 @@ enum Command {
     },
     /// Print the version
     Version,
+    /// Extract one file read from stdin and print the result as JSON (parity runner)
+    #[command(name = "__extract", hide = true)]
+    Extract {
+        /// The file's path, as the project would name it
+        file_path: String,
+        /// The language, when not detected from the path and content
+        #[arg(long)]
+        language: Option<String>,
+    },
+    /// Run one C/C++ pre-parse pass on stdin and print the result (parity runner)
+    #[command(name = "__ccpp", hide = true)]
+    Ccpp {
+        /// The pass, by its upstream name (`blankLoneMacroLines`, `cppPreParse`, …)
+        pass: String,
+        /// The file's path, for the passes that read it
+        #[arg(long, default_value = "")]
+        file: String,
+        /// The pass's one option (Objective-C rules; keep C return types)
+        #[arg(long)]
+        option: bool,
+    },
 }
 
 impl Command {
@@ -312,6 +333,8 @@ impl Command {
             Command::Upgrade { .. } => "upgrade",
             Command::Telemetry { .. } => "telemetry",
             Command::Version => "version",
+            Command::Extract { .. } => "extract",
+            Command::Ccpp { .. } => "ccpp",
         }
     }
 }
@@ -1100,6 +1123,28 @@ fn run(cli: Cli) -> Result<()> {
             println!("What is collected: {}", telemetry::DOCS);
         }
         Command::Version => println!("codegraph {}", env!("CARGO_PKG_VERSION")),
+        Command::Extract {
+            file_path,
+            language,
+        } => {
+            use std::io::Read;
+            let mut content = String::new();
+            std::io::stdin().read_to_string(&mut content)?;
+            let language = match language {
+                Some(l) => l.parse().map_err(|e| anyhow::anyhow!("{e}"))?,
+                None => codegraph_core::detect_language(&file_path, Some(&content)),
+            };
+            let result = codegraph_extract::extract_file(&file_path, &content, language);
+            println!("{}", serde_json::to_string(&result)?);
+        }
+        Command::Ccpp { pass, file, option } => {
+            use std::io::{Read, Write};
+            let mut content = String::new();
+            std::io::stdin().read_to_string(&mut content)?;
+            let out = codegraph_extract::ccpp_preparse_pass(&pass, &content, &file, option)
+                .ok_or_else(|| anyhow::anyhow!("no C/C++ pass named `{pass}`"))?;
+            std::io::stdout().write_all(out.as_bytes())?;
+        }
     }
     Ok(())
 }

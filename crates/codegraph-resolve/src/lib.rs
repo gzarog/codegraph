@@ -31,6 +31,12 @@ pub struct ResolveOutcome {
 
 const PAGE: usize = 5000;
 
+/// An `f32` as the `f64` its shortest decimal spells, so `0.9` is stored as
+/// `0.9` and not `0.8999999761581421`.
+fn as_decimal(x: f32) -> f64 {
+    x.to_string().parse().unwrap_or(f64::from(x))
+}
+
 fn to_edge(r: &UnresolvedReference, syms: &Symbols, m: &matcher::Match) -> (Edge, String) {
     let target = syms.get(m.target);
     let mut edge = Edge::new(&r.from_node_id, &target.id, r.reference_kind.edge_kind());
@@ -38,7 +44,7 @@ fn to_edge(r: &UnresolvedReference, syms: &Symbols, m: &matcher::Match) -> (Edge
     edge.column = Some(r.column);
     let mut meta = serde_json::json!({
         "resolvedBy": m.strategy,
-        "confidence": m.confidence,
+        "confidence": as_decimal(m.confidence),
         "refName": r.reference_name,
     });
     if r.reference_kind == ReferenceKind::FunctionRef {
