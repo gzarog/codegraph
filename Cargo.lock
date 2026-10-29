@@ -165,7 +165,7 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
 name = "codegraph"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -191,7 +191,7 @@ dependencies = [
 
 [[package]]
 name = "codegraph-context"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "codegraph-core",
  "codegraph-graph",
@@ -205,7 +205,7 @@ dependencies = [
 
 [[package]]
 name = "codegraph-core"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "regex",
  "serde",
@@ -214,7 +214,7 @@ dependencies = [
 
 [[package]]
 name = "codegraph-extract"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "cc",
  "codegraph-core",
@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "codegraph-frameworks"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "codegraph-core",
  "codegraph-extract",
@@ -252,7 +252,7 @@ dependencies = [
 
 [[package]]
 name = "codegraph-graph"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "codegraph-core",
  "codegraph-index",
@@ -263,14 +263,14 @@ dependencies = [
 
 [[package]]
 name = "codegraph-http"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "codegraph-index"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "codegraph-core",
  "codegraph-extract",
@@ -290,7 +290,7 @@ dependencies = [
 
 [[package]]
 name = "codegraph-resolve"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "codegraph-core",
  "codegraph-extract",
@@ -307,7 +307,7 @@ dependencies = [
 
 [[package]]
 name = "codegraph-site"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "codegraph-http",
  "codegraph-viewer",
@@ -317,7 +317,7 @@ dependencies = [
 
 [[package]]
 name = "codegraph-store"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "codegraph-core",
  "rusqlite",
@@ -328,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "codegraph-telemetry"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "codegraph-http",
  "rusqlite",
@@ -340,7 +340,7 @@ dependencies = [
 
 [[package]]
 name = "codegraph-viewer"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "serde_json",
 ]
