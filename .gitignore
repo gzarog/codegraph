@@ -1,3 +1,6 @@
 /target
 .codegraph/
 /site/dist/
+/parity/node_modules/
+/parity/.upstream/
+/parity/.work/
