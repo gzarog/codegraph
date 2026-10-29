@@ -4,6 +4,8 @@
 
 #![allow(dead_code)]
 
+pub mod aliases;
+pub mod constructor;
 pub mod ctx;
 pub mod family;
 pub mod features;
@@ -12,6 +14,8 @@ pub mod includes;
 pub mod js;
 pub mod macro_vis;
 pub mod namespaces;
+pub mod nm;
 pub mod raw_strings;
+pub mod supertypes;
 
 pub use ctx::{Ctx, Ref};

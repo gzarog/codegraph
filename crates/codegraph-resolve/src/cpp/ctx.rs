@@ -216,4 +216,6 @@ pub mod memo {
     pub const FEATURES: u16 = 16;
     pub const MACRO_VIS: u16 = 17;
     pub const STRIPPED: u16 = 18;
+    /// name-matcher.ts memos, by a key prefix per table.
+    pub const NM: u16 = 19;
 }

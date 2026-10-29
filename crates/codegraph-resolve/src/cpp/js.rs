@@ -234,6 +234,27 @@ pub fn last_segment(s: &str) -> &str {
     s.rsplit("::").next().unwrap_or(s)
 }
 
+/// `name.split(/::|\.|->/).pop()`: the last member a reference name spells.
+pub fn split_last_member(name: &str) -> &str {
+    let mut start = 0;
+    let b = name.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if (b[i] == b':' && b.get(i + 1) == Some(&b':'))
+            || (b[i] == b'-' && b.get(i + 1) == Some(&b'>'))
+        {
+            start = i + 2;
+            i += 2;
+        } else if b[i] == b'.' {
+            start = i + 1;
+            i += 1;
+        } else {
+            i += 1;
+        }
+    }
+    &name[start..]
+}
+
 /// `text.trim()` as JavaScript trims: Unicode whitespace.
 pub fn trim(s: &str) -> &str {
     s.trim()
