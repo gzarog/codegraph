@@ -63,6 +63,7 @@ pub(crate) fn note_parse_errors() {
     PARSE_ERRORS.with(|f| f.set(true));
 }
 
+pub use ccpp::preparse::pass_by_name as ccpp_preparse_pass;
 pub use decode::decode;
 pub use langs::grammar_for;
 
@@ -111,7 +112,11 @@ pub fn extract_file(file_path: &str, content: &str, language: Language) -> Extra
         "java" => java::extract(file_path, content),
         "python" => python::extract(file_path, content),
         "go" => go::extract(file_path, content),
-        "c" | "cpp" => ccpp::extract(file_path, content, lang),
+        "c" | "cpp" => ccpp::extract(
+            file_path,
+            &ccpp::preparse::pre_parse(lang, file_path, content),
+            lang,
+        ),
         "rust" => rustlang::extract(file_path, content),
         "csharp" => csharp::extract(file_path, content),
         "ruby" => ruby::extract(file_path, content),
@@ -137,6 +142,12 @@ pub fn extract_file(file_path: &str, content: &str, language: Language) -> Extra
             }
         }
     };
+    // C++ methods the file's own macros define, read from the original source.
+    if language == Language::Cpp {
+        ccpp::macro_methods::append_cpp_macro_methods(&mut result, file_path, content, |text| {
+            ccpp::preparse::pre_parse("cpp", file_path, text)
+        });
+    }
     if PARSE_ERRORS.with(|f| f.replace(false)) {
         result.errors.push(ExtractionError {
             message: "parse tree contains syntax errors; extraction is partial".to_string(),

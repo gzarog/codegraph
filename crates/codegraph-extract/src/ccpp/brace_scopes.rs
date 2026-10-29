@@ -7,7 +7,7 @@
 //! hatch: every other erroring file defers to wasm before the walk starts.
 
 use crate::textutil as util;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Intervals that nest properly, added in order of their opening offset.
 pub struct NestedIntervals<T: Clone> {
@@ -76,6 +76,8 @@ impl<T: Clone> NestedIntervals<T> {
 pub struct BraceScopes {
     closes: HashMap<usize, usize>,
     namespaces: NestedIntervals<String>,
+    /// Every brace interval, flagged when it opens a namespace (named or not).
+    scopes: NestedIntervals<bool>,
 }
 
 impl BraceScopes {
@@ -87,6 +89,12 @@ impl BraceScopes {
     /// The named namespaces whose braces hold `offset`, outermost first, as written.
     pub fn namespaces_at(&self, offset: usize) -> Vec<String> {
         self.namespaces.at(offset)
+    }
+
+    /// Whether `offset` is at namespace scope: every brace around it opens a
+    /// namespace, named or not, and none a class, a function or a linkage block.
+    pub fn at_namespace_scope(&self, offset: usize) -> bool {
+        self.scopes.at(offset).into_iter().all(|ns| ns)
     }
 
     /// The 1-based line and the UTF-16 column of `offset`.
@@ -275,6 +283,7 @@ pub fn scan(src: &str) -> Option<BraceScopes> {
     let mut open: Vec<usize> = Vec::new();
     let mut branches: Vec<Branch> = Vec::new();
     let mut namespace_at: Vec<(usize, String)> = Vec::new();
+    let mut namespace_braces: HashSet<usize> = HashSet::new();
     let mut pending_namespace: Option<(String, usize)> = None;
     let mut balanced = true;
     let mut line_start = true;
@@ -418,6 +427,7 @@ pub fn scan(src: &str) -> Option<BraceScopes> {
                 if !name.is_empty() {
                     namespace_at.push((i, name));
                 }
+                namespace_braces.insert(i);
             }
         } else if c == b'}' {
             match open.pop() {
@@ -439,5 +449,15 @@ pub fn scan(src: &str) -> Option<BraceScopes> {
             namespaces.add(brace, close, name);
         }
     }
-    Some(BraceScopes { closes, namespaces })
+    let mut braces: Vec<(usize, usize)> = closes.iter().map(|(&o, &c)| (o, c)).collect();
+    braces.sort_unstable();
+    let mut scopes = NestedIntervals::new();
+    for (brace, close) in braces {
+        scopes.add(brace, close, namespace_braces.contains(&brace));
+    }
+    Some(BraceScopes {
+        closes,
+        namespaces,
+        scopes,
+    })
 }

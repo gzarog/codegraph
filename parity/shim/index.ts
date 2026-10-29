@@ -12,6 +12,7 @@ import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { binary, binaryEnv } from './binary';
 
 export type NodeKind = string;
 export type EdgeKind = string;
@@ -115,19 +116,32 @@ function toEdge(r: Row): Edge {
   };
 }
 
-/** The binary under test: `$CODEGRAPH_BIN`, else this repository's release build. */
-function binary(): string {
-  const configured = process.env.CODEGRAPH_BIN;
-  if (configured) return configured;
-  const exe = process.platform === 'win32' ? 'codegraph.exe' : 'codegraph';
-  return path.resolve(__dirname, '..', '..', 'target', 'release', exe);
+
+let captured = 0;
+
+/**
+ * With `$CODEGRAPH_PARITY_CAPTURE` set, keep a copy of every project a test
+ * indexes there, named after the test, so it can be indexed again by upstream
+ * and the two graphs compared.
+ */
+function capture(root: string): void {
+  const into = process.env.CODEGRAPH_PARITY_CAPTURE;
+  if (!into) return;
+  const test = (globalThis as { expect?: { getState(): { testPath?: string; currentTestName?: string } } }).expect?.getState();
+  const file = path.basename(test?.testPath ?? 'unknown', '.test.ts');
+  const name = `${file}--${test?.currentTestName ?? ''}--${captured++}`.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 200);
+  fs.cpSync(root, path.join(into, name), {
+    recursive: true,
+    filter: (src) => path.basename(src) !== '.codegraph',
+  });
 }
 
 function run(args: string[], cwd: string): void {
+  if (args[0] !== 'init' || !args.includes('--no-index')) capture(cwd);
   execFileSync(binary(), args, {
     cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, DO_NOT_TRACK: '1', CODEGRAPH_NO_UPDATE_CHECK: '1', CODEGRAPH_TELEMETRY: '0' },
+    env: binaryEnv(),
   });
 }
 
