@@ -63,6 +63,18 @@ impl Routes {
 
     /// A reference from a route to the code that handles it.
     pub fn handler(&mut self, from: &str, name: &str, kind: ReferenceKind, line: u32) {
+        self.handler_at(from, name, kind, line, 0);
+    }
+
+    /// A reference from a route to its handler, at the line and column the handler is written at.
+    pub fn handler_at(
+        &mut self,
+        from: &str,
+        name: &str,
+        kind: ReferenceKind,
+        line: u32,
+        column: u32,
+    ) {
         let name = name.trim();
         if name.is_empty() {
             return;
@@ -79,7 +91,7 @@ impl Routes {
             reference_name: name.to_string(),
             reference_kind: kind,
             line,
-            column: 0,
+            column,
             file_path: None,
             language: None,
             candidates: Vec::new(),

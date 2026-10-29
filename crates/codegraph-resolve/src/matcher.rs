@@ -118,6 +118,43 @@ fn kind_rank(kind: ReferenceKind, target: NodeKind) -> u8 {
     }
 }
 
+/// Methods of Go's standard types and interfaces, which a project type rarely carries itself.
+const GO_STD_METHODS: &[&str] = &[
+    "String",
+    "Error",
+    "Unwrap",
+    "Is",
+    "As",
+    "Header",
+    "WriteHeader",
+    "WriteString",
+    "Lock",
+    "Unlock",
+    "RLock",
+    "RUnlock",
+    "Err",
+    "Deadline",
+    "Int",
+    "Bool",
+    "Float64",
+    "Int64",
+    "Uint64",
+    "Bytes",
+    "Len",
+    "Cap",
+    "Seconds",
+    "Unix",
+    "Before",
+    "After",
+    "Equal",
+    "IsNil",
+    "IsValid",
+    "Elem",
+    "NumField",
+    "Interface",
+    "Kind",
+];
+
 const SELF_WORDS: &[&str] = &[
     "this", "self", "$this", "Self", "static", "cls", "me", "Me", "@",
 ];
@@ -949,7 +986,7 @@ impl<'a> Matcher<'a> {
                     }
                 }
             }
-            let methods: Vec<SymId> = self
+            let mut methods: Vec<SymId> = self
                 .syms
                 .named_for(tail, lang)
                 .iter()
@@ -965,6 +1002,18 @@ impl<'a> Matcher<'a> {
                         && !s.local
                 })
                 .collect();
+            // A name Go's standard types all carry (`String`, `Error`) is a project
+            // type's only on a receiver named after it: cobra's
+            // `c.Flags().String(…)` is pflag's, not a test type's `String`.
+            if lang == Language::Go && GO_STD_METHODS.contains(&tail) {
+                let recv = head.trim_end_matches("()");
+                let recv = recv.rsplit(['.', ':']).next().unwrap_or(recv);
+                methods.retain(|&i| {
+                    let owner = self.syms.get(i).owner().unwrap_or("");
+                    let owner = owner.rsplit("::").next().unwrap_or(owner);
+                    matches!(recv, "self" | "this") || recv.eq_ignore_ascii_case(owner)
+                });
+            }
             // Without the receiver's type, only a name no other type shares is safe.
             let owners: std::collections::HashSet<&str> = methods
                 .iter()

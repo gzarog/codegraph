@@ -4,7 +4,9 @@
 
 use super::ctx::{Ctx, Ref};
 use super::impls::{angle_end, idents_of, strip_amp};
-use super::scopes::{bounds_of, split_top_level, BindingKind, Binding, Generics, PatternSite, Scopes};
+use super::scopes::{
+    bounds_of, split_top_level, Binding, BindingKind, Generics, PatternSite, Scopes,
+};
 use super::uses::{is_ident, module_dir, module_path, modules_lead, parent_dir};
 use super::*;
 use crate::matcher::Match;
@@ -13,6 +15,9 @@ use crate::symbols::SymId;
 use codegraph_core::NodeKind;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+
+/// A declaration's own generic parameters → the traits they are known by, and where those are read.
+pub type ParamBounds = HashMap<String, (Vec<String>, String, usize)>;
 
 /// A Rust type as some declaration writes it: its text, and the file and
 /// offset it is written at, whose `use`s, generics and `impl` say what its
@@ -31,7 +36,7 @@ pub struct Written {
     /// Generic parameters a call's value fixes, which nothing here says.
     pub opaque: Vec<String>,
     /// What a declaration's own parameters are known by where the type is reached.
-    pub bounds: Option<Rc<HashMap<String, (Vec<String>, String, usize)>>>,
+    pub bounds: Option<Rc<ParamBounds>>,
 }
 
 impl Written {
@@ -55,31 +60,54 @@ impl Written {
 #[derive(Debug, Clone)]
 pub enum Read {
     /// A type by its path.
-    Named { name: String, path: Vec<String>, args: String, wrappers: Vec<String>, by_ref: bool, written: Written },
+    Named {
+        name: String,
+        path: Vec<String>,
+        args: String,
+        wrappers: Vec<String>,
+        by_ref: bool,
+        written: Written,
+    },
     /// A trait object, an `impl Trait` or a bounded generic: the traits it is known by.
-    Traits { traits: Vec<String>, wrappers: Vec<String>, by_ref: bool, written: Written },
+    Traits {
+        traits: Vec<String>,
+        wrappers: Vec<String>,
+        by_ref: bool,
+        written: Written,
+    },
     /// A type the project doesn't declare.
-    Outside { name: String, wrappers: Vec<String>, by_ref: bool, written: Written },
+    Outside {
+        name: String,
+        wrappers: Vec<String>,
+        by_ref: bool,
+        written: Written,
+    },
     Unread,
 }
 
 impl Read {
     fn wrappers(&self) -> &[String] {
         match self {
-            Read::Named { wrappers, .. } | Read::Traits { wrappers, .. } | Read::Outside { wrappers, .. } => wrappers,
+            Read::Named { wrappers, .. }
+            | Read::Traits { wrappers, .. }
+            | Read::Outside { wrappers, .. } => wrappers,
             Read::Unread => &[],
         }
     }
     fn written(&self) -> Option<&Written> {
         match self {
-            Read::Named { written, .. } | Read::Traits { written, .. } | Read::Outside { written, .. } => Some(written),
+            Read::Named { written, .. }
+            | Read::Traits { written, .. }
+            | Read::Outside { written, .. } => Some(written),
             Read::Unread => None,
         }
     }
     fn without_outer_wrapper(&self) -> Read {
         let mut r = self.clone();
         match &mut r {
-            Read::Named { wrappers, .. } | Read::Traits { wrappers, .. } | Read::Outside { wrappers, .. } => {
+            Read::Named { wrappers, .. }
+            | Read::Traits { wrappers, .. }
+            | Read::Outside { wrappers, .. } => {
                 if !wrappers.is_empty() {
                     wrappers.remove(0);
                 }
@@ -118,7 +146,11 @@ pub fn instance(target: SymId, confidence: f32) -> Match {
 
 /// A type's path: `crate::work::Worker` → (`crate`, `work`), `Worker`; `Overrides<BuildArgs>` its arguments too.
 pub fn path_head(text: &str) -> Option<(Vec<String>, String, String)> {
-    let mut t = text.trim().trim_start_matches("::").trim_start().to_string();
+    let mut t = text
+        .trim()
+        .trim_start_matches("::")
+        .trim_start()
+        .to_string();
     let mut args = String::new();
     if let Some(open) = t.find('<') {
         if angle_end(&t, open) != Some(t.len() - 1) {
@@ -176,7 +208,10 @@ pub fn trailing_call(value: &str) -> Option<(String, String)> {
                     if b[i] != b'(' {
                         return None;
                     }
-                    return Some((value[..i].trim().to_string(), value[i + 1..value.len() - 1].to_string()));
+                    return Some((
+                        value[..i].trim().to_string(),
+                        value[i + 1..value.len() - 1].to_string(),
+                    ));
                 }
             }
             _ => {}
@@ -201,7 +236,8 @@ pub fn return_text(signature: Option<&str>) -> Option<String> {
                 if depth == 0 {
                     let rest = sig[i + 1..].trim_start().strip_prefix("->")?.trim();
                     // A signature may carry a `where` clause.
-                    let rest = super::uses::find_word(rest, "where").map_or(rest, |w| rest[..w].trim());
+                    let rest =
+                        super::uses::find_word(rest, "where").map_or(rest, |w| rest[..w].trim());
                     return (!rest.is_empty()).then(|| rest.to_string());
                 }
             }
@@ -277,7 +313,9 @@ fn expand_use(tree: &str, prefix: &[String], bound: &mut Vec<(String, Vec<String
     let mut segments: Vec<String> = prefix.to_vec();
     segments.extend(segs[..segs.len() - 1].iter().map(|s| s.to_string()));
     if last == "self" {
-        let name = alias.map(str::to_string).or_else(|| segments.last().cloned());
+        let name = alias
+            .map(str::to_string)
+            .or_else(|| segments.last().cloned());
         if let Some(n) = name {
             bound.push((n, segments));
         }
@@ -328,11 +366,19 @@ impl<'a> Ctx<'a> {
     }
 
     fn rust_types_named(&self, name: &str) -> Vec<SymId> {
-        self.rust_named(name).filter(|&i| DECLARED_TYPE_KINDS.contains(&self.syms.get(i).kind)).collect()
+        self.rust_named(name)
+            .filter(|&i| DECLARED_TYPE_KINDS.contains(&self.syms.get(i).kind))
+            .collect()
     }
 
     /// The project types a Rust type name can mean where it is written.
-    pub fn type_lookup(&self, name: &str, written_path: &[String], file: &str, at: Option<usize>) -> Lookup {
+    pub fn type_lookup(
+        &self,
+        name: &str,
+        written_path: &[String],
+        file: &str,
+        at: Option<usize>,
+    ) -> Lookup {
         let mut segments: Vec<String> = written_path.to_vec();
         let mut real = name.to_string();
         let mut via_use = false;
@@ -342,7 +388,10 @@ impl<'a> Ctx<'a> {
                 segments = bound[..bound.len() - 1].to_vec();
                 via_use = true;
             }
-        } else if let Some(head) = self.use_path(&segments[0], file, at).filter(|h| !h.is_empty()) {
+        } else if let Some(head) = self
+            .use_path(&segments[0], file, at)
+            .filter(|h| !h.is_empty())
+        {
             let mut s = head;
             s.extend(segments[1..].iter().cloned());
             segments = s;
@@ -368,7 +417,9 @@ impl<'a> Ctx<'a> {
         }
         let all = self.rust_types_named(&real);
         if all.is_empty() {
-            if segments.is_empty() && (STD_TYPES.contains(&real.as_str()) || PRELUDE.contains(&real.as_str())) {
+            if segments.is_empty()
+                && (STD_TYPES.contains(&real.as_str()) || PRELUDE.contains(&real.as_str()))
+            {
                 return outside;
             }
             return Lookup {
@@ -378,12 +429,19 @@ impl<'a> Ctx<'a> {
                 name: real,
             };
         }
-        let mut nodes: Vec<SymId> = all.into_iter().filter(|&n| self.item_visible_from(n, file)).collect();
+        let mut nodes: Vec<SymId> = all
+            .into_iter()
+            .filter(|&n| self.item_visible_from(n, file))
+            .collect();
         if !segments.is_empty() {
             let mut path = segments.clone();
             path.push(real.clone());
             if let Some(walked) = self.walked_items(&path, file, at) {
-                let named: Vec<SymId> = nodes.iter().copied().filter(|n| walked.contains(n)).collect();
+                let named: Vec<SymId> = nodes
+                    .iter()
+                    .copied()
+                    .filter(|n| walked.contains(n))
+                    .collect();
                 if !named.is_empty() {
                     return Lookup {
                         nodes: named,
@@ -396,12 +454,22 @@ impl<'a> Ctx<'a> {
         }
         let modules: Vec<String> = segments
             .iter()
-            .filter(|s| !matches!(s.as_str(), "crate" | "self" | "super") && !g.project.contains(*s))
+            .filter(|s| {
+                !matches!(s.as_str(), "crate" | "self" | "super") && !g.project.contains(*s)
+            })
             .cloned()
             .collect();
         if !modules.is_empty() {
-            let mut within: Vec<SymId> = nodes.iter().copied().filter(|&n| modules_lead(&modules, &self.syms.get(n).file)).collect();
-            if within.len() > 1 && root.as_deref().is_some_and(|r| r == "crate" || g.project.contains(r)) {
+            let mut within: Vec<SymId> = nodes
+                .iter()
+                .copied()
+                .filter(|&n| modules_lead(&modules, &self.syms.get(n).file))
+                .collect();
+            if within.len() > 1
+                && root
+                    .as_deref()
+                    .is_some_and(|r| r == "crate" || g.project.contains(r))
+            {
                 let depth = |n: SymId| module_path(&self.syms.get(n).file).len();
                 let nearest = within.iter().map(|&n| depth(n)).min().unwrap_or(0);
                 within.retain(|&n| depth(n) == nearest);
@@ -414,7 +482,11 @@ impl<'a> Ctx<'a> {
             nodes.retain(|&n| g.use_can_reach([r.as_str()], &self.syms.get(n).file, file));
         }
         if segments.is_empty() && !via_use {
-            let same: Vec<SymId> = nodes.iter().copied().filter(|&n| self.syms.get(n).file == file).collect();
+            let same: Vec<SymId> = nodes
+                .iter()
+                .copied()
+                .filter(|&n| self.syms.get(n).file == file)
+                .collect();
             if !same.is_empty() {
                 return Lookup {
                     nodes: same,
@@ -427,7 +499,11 @@ impl<'a> Ctx<'a> {
             if u.external.contains(&real) && !u.bound.contains(&real) {
                 return outside;
             }
-            let globbed: Vec<SymId> = nodes.iter().copied().filter(|&n| self.glob_scope(&real, n, &u, file)).collect();
+            let globbed: Vec<SymId> = nodes
+                .iter()
+                .copied()
+                .filter(|&n| self.glob_scope(&real, n, &u, file))
+                .collect();
             if !globbed.is_empty() {
                 return Lookup {
                     nodes: globbed,
@@ -469,7 +545,9 @@ impl<'a> Ctx<'a> {
             let before = t.clone();
             t = strip_amp(&t).trim_start_matches("mut ").trim().to_string();
             if let Some((name, open)) = wrapper_head(&t) {
-                if DEREF_WRAPPERS.contains(&name.as_str()) && angle_end(&t, open) == Some(t.len() - 1) {
+                if DEREF_WRAPPERS.contains(&name.as_str())
+                    && angle_end(&t, open) == Some(t.len() - 1)
+                {
                     let inner = t[open + 1..t.len() - 1].trim();
                     let inner = strip_lifetime_arg(inner);
                     t = inner.trim().to_string();
@@ -484,10 +562,16 @@ impl<'a> Ctx<'a> {
             return Read::Unread;
         }
         for kw in ["dyn", "impl"] {
-            if let Some(rest) = t.strip_prefix(kw).filter(|r| r.starts_with(char::is_whitespace)) {
+            if let Some(rest) = t
+                .strip_prefix(kw)
+                .filter(|r| r.starts_with(char::is_whitespace))
+            {
                 let traits: Vec<String> = split_top_level(rest.trim(), '+')
                     .into_iter()
-                    .filter(|b| !b.starts_with(['\'', '?']) && !MARKER_TRAITS.contains(&head_name(b).as_str()))
+                    .filter(|b| {
+                        !b.starts_with(['\'', '?'])
+                            && !MARKER_TRAITS.contains(&head_name(b).as_str())
+                    })
                     .collect();
                 return if traits.is_empty() {
                     Read::Outside {
@@ -514,8 +598,12 @@ impl<'a> Ctx<'a> {
                 written: written.clone(),
             };
         }
-        let Some((segments, name, args)) = path_head(&t) else { return Read::Unread };
-        if !segments.is_empty() && (segments[0] == "Self" || self.generic_bounds(&segments[0], written).is_some()) {
+        let Some((segments, name, args)) = path_head(&t) else {
+            return Read::Unread;
+        };
+        if !segments.is_empty()
+            && (segments[0] == "Self" || self.generic_bounds(&segments[0], written).is_some())
+        {
             return Read::Unread;
         }
         if segments.is_empty() && name == "Self" {
@@ -529,8 +617,12 @@ impl<'a> Ctx<'a> {
                     written: written.clone(),
                 };
             }
-            let line = self.scopes(&written.file).map_or(r.line, |sc| sc.line_at(written.at));
-            let Some(st) = self.self_type(&written.file, line) else { return Read::Unread };
+            let line = self
+                .scopes(&written.file)
+                .map_or(r.line, |sc| sc.line_at(written.at));
+            let Some(st) = self.self_type(&written.file, line) else {
+                return Read::Unread;
+            };
             if st.is_trait {
                 return Read::Traits {
                     traits: vec![st.ty],
@@ -555,7 +647,10 @@ impl<'a> Ctx<'a> {
             if let Some((traits, file, at)) = written.bounds.as_ref().and_then(|b| b.get(&name)) {
                 let traits: Vec<String> = traits
                     .iter()
-                    .filter(|b| !b.trim().starts_with(['\'', '?']) && !MARKER_TRAITS.contains(&head_name(b).as_str()))
+                    .filter(|b| {
+                        !b.trim().starts_with(['\'', '?'])
+                            && !MARKER_TRAITS.contains(&head_name(b).as_str())
+                    })
                     .cloned()
                     .collect();
                 if traits.is_empty() {
@@ -569,7 +664,10 @@ impl<'a> Ctx<'a> {
                 };
             }
             if let Some(bounds) = self.generic_bounds(&name, written) {
-                let traits: Vec<String> = bounds.into_iter().filter(|b| !MARKER_TRAITS.contains(&head_name(b).as_str())).collect();
+                let traits: Vec<String> = bounds
+                    .into_iter()
+                    .filter(|b| !MARKER_TRAITS.contains(&head_name(b).as_str()))
+                    .collect();
                 return if traits.is_empty() {
                     Read::Unread
                 } else {
@@ -603,7 +701,14 @@ impl<'a> Ctx<'a> {
     /// The bounds of a generic parameter `name` where a type is written.
     pub fn generic_bounds(&self, name: &str, written: &Written) -> Option<Vec<String>> {
         if let Some(g) = &written.generics {
-            return bounds_of(name, &[Generics { generics: g, where_: "" }]).map(|_| Vec::new());
+            return bounds_of(
+                name,
+                &[Generics {
+                    generics: g,
+                    where_: "",
+                }],
+            )
+            .map(|_| Vec::new());
         }
         let sc = self.scopes(&written.file)?;
         let f = sc.fn_at(written.at);
@@ -628,14 +733,26 @@ impl<'a> Ctx<'a> {
     }
 
     /// What the binding a Rust receiver names writes of its type, if it writes it.
-    pub fn binding_type(&self, b: &Binding, sc: &Scopes, r: &Ref<'_>, depth: u8) -> Option<Written> {
+    pub fn binding_type(
+        &self,
+        b: &Binding,
+        sc: &Scopes,
+        r: &Ref<'_>,
+        depth: u8,
+    ) -> Option<Written> {
         if let Some(t) = &b.ty {
             return Some(Written::new(t.clone(), r.file, b.at));
         }
         if b.kind == BindingKind::For {
             let element = self.iterated_element(b.scrutinee.as_deref()?, b.at, sc, r, depth)?;
-            let Some(site) = &b.site else { return Some(element) };
-            return if site.path.is_empty() { site.index.and_then(|i| tuple_field(&element, i)) } else { None };
+            let Some(site) = &b.site else {
+                return Some(element);
+            };
+            return if site.path.is_empty() {
+                site.index.and_then(|i| tuple_field(&element, i))
+            } else {
+                None
+            };
         }
         if let Some(init) = &b.init {
             return self.value_type(init, b.at, sc, r, depth);
@@ -647,7 +764,14 @@ impl<'a> Ctx<'a> {
     }
 
     /// The type of another local, as its binding in scope at `at` writes it.
-    pub fn local_type(&self, name: &str, at: usize, sc: &Scopes, r: &Ref<'_>, depth: u8) -> Option<Written> {
+    pub fn local_type(
+        &self,
+        name: &str,
+        at: usize,
+        sc: &Scopes,
+        r: &Ref<'_>,
+        depth: u8,
+    ) -> Option<Written> {
         if depth > 3 {
             return None;
         }
@@ -659,7 +783,14 @@ impl<'a> Ctx<'a> {
     }
 
     /// The type a Rust value is, where its text says.
-    pub fn value_type(&self, value: &str, at: usize, sc: &Scopes, r: &Ref<'_>, depth: u8) -> Option<Written> {
+    pub fn value_type(
+        &self,
+        value: &str,
+        at: usize,
+        sc: &Scopes,
+        r: &Ref<'_>,
+        depth: u8,
+    ) -> Option<Written> {
         if depth > 3 {
             return None;
         }
@@ -678,7 +809,9 @@ impl<'a> Ctx<'a> {
             }
             if let Some((callee, _)) = trailing_call(&v) {
                 for m in ["unwrap", "expect"] {
-                    if let Some(c) = strip_suffix_ws(&callee, m).and_then(|s| strip_suffix_ws(s, ".")) {
+                    if let Some(c) =
+                        strip_suffix_ws(&callee, m).and_then(|s| strip_suffix_ws(s, "."))
+                    {
                         v = c.to_string();
                         unwraps += 1;
                         break;
@@ -724,7 +857,12 @@ impl<'a> Ctx<'a> {
         }
         let call = trailing_call(&v);
         if let Some((callee, args)) = &call {
-            if !callee.contains('.') && callee.chars().all(|c| c.is_ascii_alphanumeric() || "_:<>, \t\n".contains(c)) && callee.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') {
+            if !callee.contains('.')
+                && callee
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "_:<>, \t\n".contains(c))
+                && callee.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            {
                 let mut callee: String = callee.chars().filter(|c| !c.is_whitespace()).collect();
                 if let Some(i) = callee.rfind("::<") {
                     if callee.ends_with('>') && !callee[i..].contains(['(', ')']) {
@@ -764,23 +902,50 @@ impl<'a> Ctx<'a> {
                     return unwrap(Some(local(&callee)));
                 }
                 if segments.len() >= 2 && upper(&segments[segments.len() - 2]) {
-                    return self.associated_return(&segments[..segments.len() - 1], &last, unwraps, at, r);
+                    return self.associated_return(
+                        &segments[..segments.len() - 1],
+                        &last,
+                        unwraps,
+                        at,
+                        r,
+                    );
                 }
-                return self.function_return(&segments[..segments.len() - 1], &last, unwraps, at, r);
+                return self.function_return(
+                    &segments[..segments.len() - 1],
+                    &last,
+                    unwraps,
+                    at,
+                    r,
+                );
             }
         }
         if let Some((callee, args)) = &call {
             // `x.clone()` is a value of `x`'s type.
             if args.trim().is_empty() {
-                if let Some(x) = strip_suffix_ws(callee, "clone").and_then(|s| strip_suffix_ws(s, ".")) {
-                    if is_ident(x.trim()) && x.trim().starts_with(|c: char| c.is_ascii_lowercase() || c == '_') {
+                if let Some(x) =
+                    strip_suffix_ws(callee, "clone").and_then(|s| strip_suffix_ws(s, "."))
+                {
+                    if is_ident(x.trim())
+                        && x.trim()
+                            .starts_with(|c: char| c.is_ascii_lowercase() || c == '_')
+                    {
                         return unwrap(self.local_type(x.trim(), at, sc, r, depth));
                     }
                 }
             }
             // `x.m(…)`, `self.m(…)`: what the method it reaches returns.
             let (recv, method, turbofish) = split_method_callee(callee)?;
-            return self.method_return(&recv, &method, turbofish.as_deref(), unwraps, awaits, at, sc, r, depth);
+            return self.method_return(
+                &recv,
+                &method,
+                turbofish.as_deref(),
+                unwraps,
+                awaits,
+                at,
+                sc,
+                r,
+                depth,
+            );
         }
         // `self.items`, `opts.config.port`, `pair.0`: the field's type as its struct declares it.
         if !v.starts_with(|c: char| c.is_ascii_digit()) {
@@ -804,7 +969,8 @@ impl<'a> Ctx<'a> {
         let segments: Vec<String> = v.split("::").map(|s| s.trim().to_string()).collect();
         if !segments.is_empty() && segments.iter().all(|s| is_ident(s)) {
             let last = segments.last().unwrap();
-            if segments.len() == 1 && last.starts_with(|c: char| c.is_ascii_lowercase() || c == '_') {
+            if segments.len() == 1 && last.starts_with(|c: char| c.is_ascii_lowercase() || c == '_')
+            {
                 return unwrap(self.local_type(last, at, sc, r, depth));
             }
             if !last.starts_with(|c: char| c.is_ascii_uppercase()) || is_screaming(last) {
@@ -813,7 +979,9 @@ impl<'a> Ctx<'a> {
             if segments.len() == 1 && last == "None" {
                 return Some(local("Option<_>"));
             }
-            if segments.len() >= 2 && segments[segments.len() - 2].starts_with(|c: char| c.is_ascii_uppercase()) {
+            if segments.len() >= 2
+                && segments[segments.len() - 2].starts_with(|c: char| c.is_ascii_uppercase())
+            {
                 return Some(local(&segments[..segments.len() - 1].join("::")));
             }
             return unwrap(Some(local(&segments.join("::"))));
@@ -825,19 +993,40 @@ impl<'a> Ctx<'a> {
     pub fn signature_offset(&self, f: SymId) -> usize {
         let start = self.node_offset(f);
         let file = self.syms.get(f).file.clone();
-        let Some(sc) = self.scopes(&file) else { return start };
-        sc.fns.iter().find(|x| x.at >= start && x.at <= start + 512).map_or(start, |x| x.from + 1)
+        let Some(sc) = self.scopes(&file) else {
+            return start;
+        };
+        sc.fns
+            .iter()
+            .find(|x| x.at >= start && x.at <= start + 512)
+            .map_or(start, |x| x.from + 1)
     }
 
     /// What `Type::f(…)` returns, read from the signature of the type's `f`.
-    fn associated_return(&self, owner: &[String], f: &str, unwraps: usize, at: usize, r: &Ref<'_>) -> Option<Written> {
+    fn associated_return(
+        &self,
+        owner: &[String],
+        f: &str,
+        unwraps: usize,
+        at: usize,
+        r: &Ref<'_>,
+    ) -> Option<Written> {
         let written = Written::new(owner.join("::"), r.file, at);
         let read = self.read_type(&written, r);
-        let constructs = matches!(f, "new" | "default" | "from" | "open" | "create" | "connect" | "bind" | "empty")
-            || ["new_", "with_", "from_"].iter().any(|p| f.starts_with(p) && f.len() > p.len());
+        let constructs = matches!(
+            f,
+            "new" | "default" | "from" | "open" | "create" | "connect" | "bind" | "empty"
+        ) || ["new_", "with_", "from_"]
+            .iter()
+            .any(|p| f.starts_with(p) && f.len() > p.len());
         let (name, path, rw) = match &read {
             Read::Outside { .. } => return constructs.then_some(written),
-            Read::Named { name, path, written: w, .. } => (name.clone(), path.clone(), w.clone()),
+            Read::Named {
+                name,
+                path,
+                written: w,
+                ..
+            } => (name.clone(), path.clone(), w.clone()),
             _ => return None,
         };
         let lookup = self.type_lookup(&name, &path, &rw.file, Some(rw.at));
@@ -848,7 +1037,10 @@ impl<'a> Ctx<'a> {
         if fns.is_empty() {
             return ((f == "new" || f == "default") && unwraps == 0).then_some(written);
         }
-        let returns: HashSet<String> = fns.iter().map(|&x| return_text(self.syms.get(x).signature.as_deref()).unwrap_or_default()).collect();
+        let returns: HashSet<String> = fns
+            .iter()
+            .map(|&x| return_text(self.syms.get(x).signature.as_deref()).unwrap_or_default())
+            .collect();
         if returns.len() != 1 {
             return None;
         }
@@ -856,14 +1048,25 @@ impl<'a> Ctx<'a> {
         if text.is_empty() {
             return None;
         }
-        let made = Written::new(text, &self.syms.get(fns[0]).file, self.signature_offset(fns[0]));
-        let value = if unwraps > 0 { unwrapped(&made, unwraps) } else { Some(made) };
+        let made = Written::new(
+            text,
+            &self.syms.get(fns[0]).file,
+            self.signature_offset(fns[0]),
+        );
+        let value = if unwraps > 0 {
+            unwrapped(&made, unwraps)
+        } else {
+            Some(made)
+        };
         if let Some(v) = &value {
             if v.text.trim() == "Self" || head_name(&v.text) == name {
                 return Some(written);
             }
         }
-        let files: HashSet<&str> = fns.iter().map(|&x| self.syms.get(x).file.as_str()).collect();
+        let files: HashSet<&str> = fns
+            .iter()
+            .map(|&x| self.syms.get(x).file.as_str())
+            .collect();
         if files.len() > 1 {
             None
         } else {
@@ -872,16 +1075,32 @@ impl<'a> Ctx<'a> {
     }
 
     /// What a free function `f(…)` or `module::f(…)` returns.
-    fn function_return(&self, modules: &[String], f: &str, unwraps: usize, at: usize, r: &Ref<'_>) -> Option<Written> {
-        let mut fns: Vec<SymId> = self.rust_named(f).filter(|&i| self.syms.get(i).kind == NodeKind::Function).collect();
-        let same: Vec<SymId> = fns.iter().copied().filter(|&i| self.syms.get(i).file == r.file).collect();
+    fn function_return(
+        &self,
+        modules: &[String],
+        f: &str,
+        unwraps: usize,
+        at: usize,
+        r: &Ref<'_>,
+    ) -> Option<Written> {
+        let mut fns: Vec<SymId> = self
+            .rust_named(f)
+            .filter(|&i| self.syms.get(i).kind == NodeKind::Function)
+            .collect();
+        let same: Vec<SymId> = fns
+            .iter()
+            .copied()
+            .filter(|&i| self.syms.get(i).file == r.file)
+            .collect();
         if !same.is_empty() && modules.is_empty() {
             fns = same;
         } else {
             let path: Vec<String> = if modules.is_empty() {
                 self.use_path(f, r.file, Some(at))?
             } else {
-                let head = self.use_path(&modules[0], r.file, Some(at)).filter(|h| !h.is_empty());
+                let head = self
+                    .use_path(&modules[0], r.file, Some(at))
+                    .filter(|h| !h.is_empty());
                 let mut p = head.unwrap_or_else(|| vec![modules[0].clone()]);
                 p.extend(modules[1..].iter().cloned());
                 p.push(f.to_string());
@@ -898,7 +1117,9 @@ impl<'a> Ctx<'a> {
                 let g = self.graph();
                 let segs: Vec<String> = path[..path.len() - 1]
                     .iter()
-                    .filter(|s| !matches!(s.as_str(), "crate" | "self" | "super") && !g.project.contains(*s))
+                    .filter(|s| {
+                        !matches!(s.as_str(), "crate" | "self" | "super") && !g.project.contains(*s)
+                    })
                     .cloned()
                     .collect();
                 if !segs.is_empty() {
@@ -906,7 +1127,10 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
-        let returns: HashSet<String> = fns.iter().map(|&x| return_text(self.syms.get(x).signature.as_deref()).unwrap_or_default()).collect();
+        let returns: HashSet<String> = fns
+            .iter()
+            .map(|&x| return_text(self.syms.get(x).signature.as_deref()).unwrap_or_default())
+            .collect();
         if fns.is_empty() || returns.len() != 1 {
             return None;
         }
@@ -914,7 +1138,11 @@ impl<'a> Ctx<'a> {
         if text.is_empty() {
             return None;
         }
-        let made = Written::new(text, &self.syms.get(fns[0]).file, self.signature_offset(fns[0]));
+        let made = Written::new(
+            text,
+            &self.syms.get(fns[0]).file,
+            self.signature_offset(fns[0]),
+        );
         if unwraps > 0 {
             unwrapped(&made, unwraps)
         } else {
@@ -947,16 +1175,26 @@ impl<'a> Ctx<'a> {
             return None;
         }?;
         let read = self.read_type(&written, r);
-        let Hit::Found(m) = self.typed_method_call(&read, method, r, 0) else { return None };
+        let Hit::Found(m) = self.typed_method_call(&read, method, r, 0) else {
+            return None;
+        };
         let target = m.target;
         let text = return_text(self.syms.get(target).signature.as_deref())?;
-        let mut made = Written::new(text, &self.syms.get(target).file, self.signature_offset(target));
+        let mut made = Written::new(
+            text,
+            &self.syms.get(target).file,
+            self.signature_offset(target),
+        );
         made = self.return_instance(made, target, turbofish, &read, at, r);
         let is_async = self.is_async_fn(target);
         if awaits > 1 || (awaits == 0 && is_async) {
             return None;
         }
-        let made = if awaits == 1 && !is_async { future_output(&made)? } else { made };
+        let made = if awaits == 1 && !is_async {
+            future_output(&made)?
+        } else {
+            made
+        };
         if unwraps > 0 {
             unwrapped(&made, unwraps)
         } else {
@@ -965,16 +1203,35 @@ impl<'a> Ctx<'a> {
     }
 
     /// A method's return type as the call makes it, where it names a generic or `Self`.
-    fn return_instance(&self, made: Written, target: SymId, turbofish: Option<&str>, read: &Read, at: usize, r: &Ref<'_>) -> Written {
+    fn return_instance(
+        &self,
+        made: Written,
+        target: SymId,
+        turbofish: Option<&str>,
+        read: &Read,
+        at: usize,
+        r: &Ref<'_>,
+    ) -> Written {
         let names: Vec<String> = idents_of(&made.text)
             .into_iter()
             .filter(|n| !matches!(n.as_str(), "mut" | "dyn" | "impl" | "const" | "for"))
             .collect();
-        let generics: Vec<String> = names.iter().filter(|n| *n != "Self" && self.generic_bounds(n, &made).is_some()).cloned().collect();
+        let generics: Vec<String> = names
+            .iter()
+            .filter(|n| *n != "Self" && self.generic_bounds(n, &made).is_some())
+            .cloned()
+            .collect();
         if generics.is_empty() {
             let bare = strip_amp(&made.text).trim();
             if bare == "Self" {
-                if let Read::Named { name, path, args, written, .. } = read {
+                if let Read::Named {
+                    name,
+                    path,
+                    args,
+                    written,
+                    ..
+                } = read
+                {
                     if self.trait_of(target).is_some() {
                         let mut ty = path.clone();
                         ty.push(name.clone());
@@ -982,7 +1239,11 @@ impl<'a> Ctx<'a> {
                         if !args.is_empty() {
                             ty = format!("{ty}<{args}>");
                         }
-                        let text = made.text.trim_end().strip_suffix("Self").map_or(made.text.clone(), |p| format!("{p}{ty}"));
+                        let text = made
+                            .text
+                            .trim_end()
+                            .strip_suffix("Self")
+                            .map_or(made.text.clone(), |p| format!("{p}{ty}"));
                         return Written::new(text, &written.file, written.at);
                     }
                 }
@@ -999,25 +1260,40 @@ impl<'a> Ctx<'a> {
             opaque: unique.clone(),
             ..made.clone()
         };
-        let Some(turbofish) = turbofish else { return opaque };
-        let Some(sc) = self.scopes(&made.file) else { return opaque };
+        let Some(turbofish) = turbofish else {
+            return opaque;
+        };
+        let Some(sc) = self.scopes(&made.file) else {
+            return opaque;
+        };
         let params: Vec<String> = sc
             .fn_at(made.at)
             .map(|f| {
                 split_top_level(&f.generics, ',')
                     .iter()
                     .filter_map(|p| {
-                        let p = p.trim_start().strip_prefix("const ").unwrap_or(p.trim_start());
-                        let id: String = p.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+                        let p = p
+                            .trim_start()
+                            .strip_prefix("const ")
+                            .unwrap_or(p.trim_start());
+                        let id: String = p
+                            .chars()
+                            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                            .collect();
                         (!id.is_empty()).then_some(id)
                     })
                     .collect()
             })
             .unwrap_or_default();
-        let args: Vec<String> = split_top_level(turbofish, ',').into_iter().filter(|a| !a.starts_with('\'')).collect();
+        let args: Vec<String> = split_top_level(turbofish, ',')
+            .into_iter()
+            .filter(|a| !a.starts_with('\''))
+            .collect();
         let mut bound: HashMap<String, String> = HashMap::new();
         for g in &unique {
-            let Some(i) = params.iter().position(|p| p == g) else { return opaque };
+            let Some(i) = params.iter().position(|p| p == g) else {
+                return opaque;
+            };
             if i >= args.len() || args[i] == "_" {
                 return opaque;
             }
@@ -1025,7 +1301,10 @@ impl<'a> Ctx<'a> {
         }
         if names.iter().any(|n| {
             !bound.contains_key(n)
-                && (n == "Self" || !(STD_TYPES.contains(&n.as_str()) || PRELUDE.contains(&n.as_str()) || PRIMITIVE_TYPES.contains(&n.as_str())))
+                && (n == "Self"
+                    || !(STD_TYPES.contains(&n.as_str())
+                        || PRELUDE.contains(&n.as_str())
+                        || PRIMITIVE_TYPES.contains(&n.as_str())))
         }) {
             return opaque;
         }
@@ -1036,7 +1315,9 @@ impl<'a> Ctx<'a> {
     /// Whether a Rust function is declared `async`, read off its source.
     pub fn is_async_fn(&self, f: SymId) -> bool {
         let s = self.syms.get(f);
-        let Some(sc) = self.scopes(&s.file) else { return false };
+        let Some(sc) = self.scopes(&s.file) else {
+            return false;
+        };
         let start = self.node_offset(f);
         let end = (start + 300).min(sc.code.len());
         let head = &sc.code[start..floor_char(&sc.code, end)];
@@ -1045,7 +1326,9 @@ impl<'a> Ctx<'a> {
         while let Some(i) = super::uses::find_word(&head[from..], "fn").map(|i| from + i) {
             from = i + 2;
             let rest = head[i + 2..].trim_start().trim_start_matches("r#");
-            if rest.starts_with(name) && !rest[name.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+            if rest.starts_with(name)
+                && !rest[name.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_')
+            {
                 return super::uses::find_word(&head[..i], "async").is_some();
             }
         }
@@ -1053,7 +1336,15 @@ impl<'a> Ctx<'a> {
     }
 
     /// What a Rust field access is, as the receiver's struct declares the field.
-    fn field_value(&self, receiver: &str, field: &str, at: usize, sc: &Scopes, r: &Ref<'_>, depth: u8) -> Option<Written> {
+    fn field_value(
+        &self,
+        receiver: &str,
+        field: &str,
+        at: usize,
+        sc: &Scopes,
+        r: &Ref<'_>,
+        depth: u8,
+    ) -> Option<Written> {
         let recv = receiver.trim();
         let written = if recv == "self" {
             Written::new("Self", r.file, at)
@@ -1069,12 +1360,25 @@ impl<'a> Ctx<'a> {
                 return tuple_field(&written, field.parse().ok()?);
             }
         }
-        let Read::Named { name, path, written: rw, .. } = &read else { return None };
+        let Read::Named {
+            name,
+            path,
+            written: rw,
+            ..
+        } = &read
+        else {
+            return None;
+        };
         let lookup = self.type_lookup(name, path, &rw.file, Some(rw.at));
         let structs: Vec<SymId> = if lookup.outside {
             Vec::new()
         } else {
-            lookup.nodes.iter().copied().filter(|&n| matches!(self.syms.get(n).kind, NodeKind::Struct | NodeKind::Union)).collect()
+            lookup
+                .nodes
+                .iter()
+                .copied()
+                .filter(|&n| matches!(self.syms.get(n).kind, NodeKind::Struct | NodeKind::Union))
+                .collect()
         };
         if structs.len() != 1 {
             return None;
@@ -1082,7 +1386,11 @@ impl<'a> Ctx<'a> {
         let decl = structs[0];
         let fields = self.declared_fields(decl, false)?;
         let text = if is_index {
-            fields.tuple.as_ref()?.get(field.parse::<usize>().ok()?)?.clone()
+            fields
+                .tuple
+                .as_ref()?
+                .get(field.parse::<usize>().ok()?)?
+                .clone()
         } else {
             fields.named.as_ref()?.get(field)?.clone()
         };
@@ -1104,7 +1412,14 @@ impl<'a> Ctx<'a> {
     }
 
     /// What a Rust `for` loop binds, an item of what it iterates.
-    fn iterated_element(&self, iter: &str, at: usize, sc: &Scopes, r: &Ref<'_>, depth: u8) -> Option<Written> {
+    fn iterated_element(
+        &self,
+        iter: &str,
+        at: usize,
+        sc: &Scopes,
+        r: &Ref<'_>,
+        depth: u8,
+    ) -> Option<Written> {
         let mut v = iter.trim().to_string();
         let mut steps: Vec<String> = Vec::new();
         for _ in 0..8 {
@@ -1144,7 +1459,11 @@ impl<'a> Ctx<'a> {
             }
         }
         let item = self.item_of(value, projection)?;
-        Some(if numbered { item.with_text(format!("(usize, {})", item.text)) } else { item })
+        Some(if numbered {
+            item.with_text(format!("(usize, {})", item.text))
+        } else {
+            item
+        })
     }
 
     /// The item type a value of a Rust type hands out when iterated.
@@ -1154,10 +1473,23 @@ impl<'a> Ctx<'a> {
             let before = t.clone();
             t = strip_amp(&t).trim().to_string();
             if let Some((name, open)) = wrapper_head(&t) {
-                if ["Box", "Rc", "Arc", "Cow", "Ref", "RefMut", "MutexGuard", "RwLockReadGuard", "RwLockWriteGuard"].contains(&name.as_str())
+                if [
+                    "Box",
+                    "Rc",
+                    "Arc",
+                    "Cow",
+                    "Ref",
+                    "RefMut",
+                    "MutexGuard",
+                    "RwLockReadGuard",
+                    "RwLockWriteGuard",
+                ]
+                .contains(&name.as_str())
                     && angle_end(&t, open) == Some(t.len() - 1)
                 {
-                    t = strip_lifetime_arg(t[open + 1..t.len() - 1].trim()).trim().to_string();
+                    t = strip_lifetime_arg(t[open + 1..t.len() - 1].trim())
+                        .trim()
+                        .to_string();
                 }
             }
             if t == before {
@@ -1171,7 +1503,12 @@ impl<'a> Ctx<'a> {
                 ..w.clone()
             })
         };
-        let type_args = |args: &str| -> Vec<String> { split_top_level(args, ',').into_iter().filter(|a| !a.starts_with('\'')).collect() };
+        let type_args = |args: &str| -> Vec<String> {
+            split_top_level(args, ',')
+                .into_iter()
+                .filter(|a| !a.starts_with('\''))
+                .collect()
+        };
         let std = |name: &str| !self.is_project_named(name, DECLARED_TYPE_KINDS);
         if t.starts_with('[') {
             if !group_is_whole(&t) || projection.is_some() {
@@ -1180,18 +1517,26 @@ impl<'a> Ctx<'a> {
             return as_(split_top_level(&t[1..t.len() - 1], ';').into_iter().next());
         }
         for kw in ["impl", "dyn"] {
-            if let Some(rest) = t.strip_prefix(kw).filter(|r| r.starts_with(char::is_whitespace)) {
+            if let Some(rest) = t
+                .strip_prefix(kw)
+                .filter(|r| r.starts_with(char::is_whitespace))
+            {
                 if projection.is_some() {
                     return None;
                 }
                 for bound in split_top_level(rest.trim(), '+') {
-                    let Some((_, name, args)) = path_head(&bound) else { continue };
+                    let Some((_, name, args)) = path_head(&bound) else {
+                        continue;
+                    };
                     if !ITERATOR_TRAITS.contains(&name.as_str()) {
                         continue;
                     }
                     return as_(type_args(&args).iter().find_map(|a| {
                         let a = a.trim();
-                        a.strip_prefix("Item").map(str::trim_start).and_then(|r| r.strip_prefix('=')).map(|r| r.trim().to_string())
+                        a.strip_prefix("Item")
+                            .map(str::trim_start)
+                            .and_then(|r| r.strip_prefix('='))
+                            .map(|r| r.trim().to_string())
                     }));
                 }
                 return None;
@@ -1203,7 +1548,11 @@ impl<'a> Ctx<'a> {
         }
         let args = type_args(&args);
         if STD_SEQUENCES.contains(&name.as_str()) {
-            return if projection.is_some() || args.len() != 1 { None } else { as_(args.into_iter().next()) };
+            return if projection.is_some() || args.len() != 1 {
+                None
+            } else {
+                as_(args.into_iter().next())
+            };
         }
         if STD_MAPS.contains(&name.as_str()) {
             if args.len() < 2 {
@@ -1241,7 +1590,15 @@ impl<'a> Ctx<'a> {
     }
 
     /// The type a name a pattern binds is.
-    fn site_type(&self, site: &PatternSite, scrutinee: Option<&str>, at: usize, sc: &Scopes, r: &Ref<'_>, depth: u8) -> Option<Written> {
+    fn site_type(
+        &self,
+        site: &PatternSite,
+        scrutinee: Option<&str>,
+        at: usize,
+        sc: &Scopes,
+        r: &Ref<'_>,
+        depth: u8,
+    ) -> Option<Written> {
         if site.path.is_empty() {
             let index = site.index?;
             let value = self.value_type(scrutinee?, at, sc, r, depth + 1)?;
@@ -1263,7 +1620,8 @@ impl<'a> Ctx<'a> {
                 _ => None,
             };
         }
-        let (fields, file, decl_at, self_, generics) = self.pattern_declaration(&segments, at, r)?;
+        let (fields, file, decl_at, self_, generics) =
+            self.pattern_declaration(&segments, at, r)?;
         let text = match (site.index, &site.field) {
             (Some(i), _) => fields.tuple.as_ref()?.get(i)?.clone(),
             (None, Some(f)) => fields.named.as_ref()?.get(f)?.clone(),
@@ -1280,11 +1638,27 @@ impl<'a> Ctx<'a> {
     }
 
     /// The declaration a tuple-struct, variant or struct pattern's path names, with its fields' types.
-    fn pattern_declaration(&self, segments: &[String], at: usize, r: &Ref<'_>) -> Option<(Rc<Fields>, String, usize, String, String)> {
+    fn pattern_declaration(
+        &self,
+        segments: &[String],
+        at: usize,
+        r: &Ref<'_>,
+    ) -> Option<(Rc<Fields>, String, usize, String, String)> {
         let last = segments.last()?;
         if segments.len() >= 2 {
-            let owner = self.read_type(&Written::new(segments[..segments.len() - 1].join("::"), r.file, at), r);
-            let Read::Named { name, path, written, .. } = owner else { return None };
+            let owner = self.read_type(
+                &Written::new(segments[..segments.len() - 1].join("::"), r.file, at),
+                r,
+            );
+            let Read::Named {
+                name,
+                path,
+                written,
+                ..
+            } = owner
+            else {
+                return None;
+            };
             let enums: Vec<SymId> = self
                 .type_lookup(&name, &path, &written.file, Some(written.at))
                 .nodes
@@ -1301,8 +1675,17 @@ impl<'a> Ctx<'a> {
                 s.kind == NodeKind::EnumMember && s.qualified_name == q
             })?;
             let fields = self.declared_fields(variant, false)?;
-            let generics = self.declared_fields(enums[0], true).map(|f| f.generics.clone()).unwrap_or_default();
-            return Some((fields, self.syms.get(variant).file.clone(), self.node_offset(variant), e.name.clone(), generics));
+            let generics = self
+                .declared_fields(enums[0], true)
+                .map(|f| f.generics.clone())
+                .unwrap_or_default();
+            return Some((
+                fields,
+                self.syms.get(variant).file.clone(),
+                self.node_offset(variant),
+                e.name.clone(),
+                generics,
+            ));
         }
         let structs: Vec<SymId> = self
             .type_lookup(last, &[], r.file, Some(at))
@@ -1316,12 +1699,20 @@ impl<'a> Ctx<'a> {
         let fields = self.declared_fields(structs[0], false)?;
         let s = self.syms.get(structs[0]);
         let g = fields.generics.clone();
-        Some((fields, s.file.clone(), self.node_offset(structs[0]), s.name.clone(), g))
+        Some((
+            fields,
+            s.file.clone(),
+            self.node_offset(structs[0]),
+            s.name.clone(),
+            g,
+        ))
     }
 
     /// The fields a struct, an enum's variant (or, for its generics, an enum) declares.
     pub fn declared_fields(&self, decl: SymId, generics_only: bool) -> Option<Rc<Fields>> {
-        self.memo(21, format!("{decl}\0{generics_only}"), || self.read_declared_fields(decl, generics_only).map(Rc::new))
+        self.memo(21, format!("{decl}\0{generics_only}"), || {
+            self.read_declared_fields(decl, generics_only).map(Rc::new)
+        })
     }
 
     fn read_declared_fields(&self, decl: SymId, generics_only: bool) -> Option<Fields> {
@@ -1373,7 +1764,10 @@ impl<'a> Ctx<'a> {
             };
             t.trim().to_string()
         };
-        let parts: Vec<String> = split_top_level(&code[open + 1..close], ',').iter().map(|p| field(p)).collect();
+        let parts: Vec<String> = split_top_level(&code[open + 1..close], ',')
+            .iter()
+            .map(|p| field(p))
+            .collect();
         if bracket == Some(b'(') {
             return Some(Fields {
                 tuple: Some(parts),
@@ -1404,30 +1798,50 @@ impl<'a> Ctx<'a> {
         self.rust_named(method)
             .filter(|&i| {
                 let s = self.syms.get(i);
-                s.kind == NodeKind::Method && (s.qualified_name == want || s.qualified_name.ends_with(&suffix))
+                s.kind == NodeKind::Method
+                    && (s.qualified_name == want || s.qualified_name.ends_with(&suffix))
             })
             .collect()
     }
 
     /// The `Name::method` methods of the types a lookup found: a namesake type's methods are its own.
     pub fn owned_methods(&self, name: &str, method: &str, lookup: &Lookup) -> Vec<SymId> {
-        let matches: Vec<SymId> = self.methods_named(name, method).into_iter().filter(|&m| self.trait_of(m).is_none()).collect();
-        let types: Vec<SymId> = lookup.nodes.iter().copied().filter(|&n| OWNER_KINDS.contains(&self.syms.get(n).kind)).collect();
+        let matches: Vec<SymId> = self
+            .methods_named(name, method)
+            .into_iter()
+            .filter(|&m| self.trait_of(m).is_none())
+            .collect();
+        let types: Vec<SymId> = lookup
+            .nodes
+            .iter()
+            .copied()
+            .filter(|&n| OWNER_KINDS.contains(&self.syms.get(n).kind))
+            .collect();
         if types.is_empty() {
             return matches;
         }
-        let namesakes = self.rust_named(name).filter(|&n| OWNER_KINDS.contains(&self.syms.get(n).kind)).count();
+        let namesakes = self
+            .rust_named(name)
+            .filter(|&n| OWNER_KINDS.contains(&self.syms.get(n).kind))
+            .count();
         if namesakes <= types.len() {
             return matches;
         }
         let ids: HashSet<SymId> = types.iter().copied().collect();
-        let files: HashSet<&str> = types.iter().map(|&t| self.syms.get(t).file.as_str()).collect();
+        let files: HashSet<&str> = types
+            .iter()
+            .map(|&t| self.syms.get(t).file.as_str())
+            .collect();
         matches
             .into_iter()
             .filter(|&m| {
                 let mf = &self.syms.get(m).file;
                 files.contains(mf.as_str())
-                    || self.type_lookup(name, &[], mf, Some(self.node_offset(m))).nodes.iter().any(|n| ids.contains(n))
+                    || self
+                        .type_lookup(name, &[], mf, Some(self.node_offset(m)))
+                        .nodes
+                        .iter()
+                        .any(|n| ids.contains(n))
             })
             .collect()
     }
@@ -1467,7 +1881,10 @@ impl<'a> Ctx<'a> {
                     let s: String = a.chars().filter(|c| !c.is_whitespace()).collect();
                     let mut t = s.as_str();
                     while let Some(i) = t.find("::") {
-                        if t[..i].chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                        if t[..i]
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+                        {
                             t = &t[i + 2..];
                         } else {
                             break;
@@ -1491,11 +1908,17 @@ impl<'a> Ctx<'a> {
             }
             if have.iter().zip(&want).all(|(x, y)| x == y) {
                 exact.push(m);
-            } else if have
-                .iter()
-                .zip(&want)
-                .all(|(x, y)| x == y || bounds_of(x, &[Generics { generics: &g, where_: "" }]).is_some())
-            {
+            } else if have.iter().zip(&want).all(|(x, y)| {
+                x == y
+                    || bounds_of(
+                        x,
+                        &[Generics {
+                            generics: &g,
+                            where_: "",
+                        }],
+                    )
+                    .is_some()
+            }) {
                 generic.push(m);
             }
         }
@@ -1509,16 +1932,29 @@ impl<'a> Ctx<'a> {
     }
 
     /// The method among `methods` a call reaches: its own file's, the type's file's, then the nearest.
-    pub fn pick_method(&self, methods: &[SymId], type_files: &HashSet<String>, r: &Ref<'_>, confidence: f32) -> Hit {
+    pub fn pick_method(
+        &self,
+        methods: &[SymId],
+        type_files: &HashSet<String>,
+        r: &Ref<'_>,
+        confidence: f32,
+    ) -> Hit {
         let chosen = methods
             .iter()
             .copied()
             .find(|&m| self.syms.get(m).file == r.file)
-            .or_else(|| methods.iter().copied().find(|&m| type_files.contains(&self.syms.get(m).file)))
+            .or_else(|| {
+                methods
+                    .iter()
+                    .copied()
+                    .find(|&m| type_files.contains(&self.syms.get(m).file))
+            })
             .or_else(|| {
                 let mut best = *methods.first()?;
                 for &m in &methods[1..] {
-                    if proximity(r.file, &self.syms.get(m).file) > proximity(r.file, &self.syms.get(best).file) {
+                    if proximity(r.file, &self.syms.get(m).file)
+                        > proximity(r.file, &self.syms.get(best).file)
+                    {
                         best = m;
                     }
                 }
@@ -1535,7 +1971,10 @@ impl<'a> Ctx<'a> {
         if r.file == self.syms.get(target).file {
             return true;
         }
-        let traits: Vec<SymId> = self.rust_named(trait_).filter(|&n| self.syms.get(n).kind == NodeKind::Trait).collect();
+        let traits: Vec<SymId> = self
+            .rust_named(trait_)
+            .filter(|&n| self.syms.get(n).kind == NodeKind::Trait)
+            .collect();
         if traits.iter().any(|&t| self.syms.get(t).file == r.file) {
             return true;
         }
@@ -1544,10 +1983,16 @@ impl<'a> Ctx<'a> {
             return true;
         }
         let g = self.graph();
-        if uses.globs.iter().any(|x| x == "prelude" || x == "crate" || g.project.contains(x)) {
+        if uses
+            .globs
+            .iter()
+            .any(|x| x == "prelude" || x == "crate" || g.project.contains(x))
+        {
             return true;
         }
-        traits.iter().any(|&t| super::uses::glob_covers(&uses, &self.syms.get(t).file, r.file))
+        traits
+            .iter()
+            .any(|&t| super::uses::glob_covers(&uses, &self.syms.get(t).file, r.file))
     }
 
     fn trait_callable(&self, trait_: &str, r: &Ref<'_>, sample: SymId) -> bool {
@@ -1575,7 +2020,11 @@ impl<'a> Ctx<'a> {
                 files.push(f.clone());
             }
         }
-        let key = format!("{trait_}\0{trait_file:?}\0{name:?}\0{}\0{depth}\0{}", receiver_traits.join(","), files.join("\0"));
+        let key = format!(
+            "{trait_}\0{trait_file:?}\0{name:?}\0{}\0{depth}\0{}",
+            receiver_traits.join(","),
+            files.join("\0")
+        );
         {
             let memo = self.memo.borrow();
             if let Some(Some(v)) = memo.get(&(22, key.clone())) {
@@ -1584,23 +2033,38 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
-        self.memo.borrow_mut().insert((22, key.clone()), Some(Rc::new(false)));
+        self.memo
+            .borrow_mut()
+            .insert((22, key.clone()), Some(Rc::new(false)));
         let meets = |bound: &str| -> bool {
             let head = head_name(bound);
-            if MARKER_TRAITS.contains(&head.as_str()) || receiver_traits.iter().any(|t| head_name(t) == head) {
+            if MARKER_TRAITS.contains(&head.as_str())
+                || receiver_traits.iter().any(|t| head_name(t) == head)
+            {
                 return true;
             }
             let Some(n) = name else { return false };
             if depth >= 2 {
                 return false;
             }
-            let declared = self.rust_named(&head).find(|&i| self.syms.get(i).kind == NodeKind::Trait);
+            let declared = self
+                .rust_named(&head)
+                .find(|&i| self.syms.get(i).kind == NodeKind::Trait);
             let df = declared.map(|d| self.syms.get(d).file.clone());
-            self.trait_implemented(&head, df.as_deref(), Some(n), type_files, receiver_traits, depth + 1)
+            self.trait_implemented(
+                &head,
+                df.as_deref(),
+                Some(n),
+                type_files,
+                receiver_traits,
+                depth + 1,
+            )
         };
         let mut found = false;
         'files: for file in &files {
-            let Some(sc) = self.scopes(file) else { continue };
+            let Some(sc) = self.scopes(file) else {
+                continue;
+            };
             let code = sc.code.as_str();
             if !code.contains(trait_) {
                 continue;
@@ -1614,11 +2078,18 @@ impl<'a> Ctx<'a> {
                 }
                 // A blanket impl over one of its own parameters.
                 let self_name = self_written.trim();
-                if !self_name.starts_with(|c: char| c.is_ascii_uppercase()) || !is_ident(self_name) {
+                if !self_name.starts_with(|c: char| c.is_ascii_uppercase()) || !is_ident(self_name)
+                {
                     continue;
                 }
                 let Some(g) = impl_generics else { continue };
-                if let Some(bounds) = bounds_of(self_name, &[Generics { generics: &g, where_: &impl_where }]) {
+                if let Some(bounds) = bounds_of(
+                    self_name,
+                    &[Generics {
+                        generics: &g,
+                        where_: &impl_where,
+                    }],
+                ) {
                     if bounds.iter().all(|b| meets(b)) {
                         found = true;
                         break 'files;
@@ -1626,15 +2097,28 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
-        self.memo.borrow_mut().insert((22, key), Some(Rc::new(found)));
+        self.memo
+            .borrow_mut()
+            .insert((22, key), Some(Rc::new(found)));
         found
     }
 
     /// The method a call reaches as one a project trait provides.
-    fn provided_method(&self, name: Option<&str>, type_files: &HashSet<String>, receiver_traits: &[String], method: &str, r: &Ref<'_>) -> Option<Hit> {
+    fn provided_method(
+        &self,
+        name: Option<&str>,
+        type_files: &HashSet<String>,
+        receiver_traits: &[String],
+        method: &str,
+        r: &Ref<'_>,
+    ) -> Option<Hit> {
         let declared: Vec<SymId> = self
             .rust_named(method)
-            .filter(|&m| self.syms.get(m).kind == NodeKind::Method && self.trait_of(m).is_some() && self.has_body(m))
+            .filter(|&m| {
+                self.syms.get(m).kind == NodeKind::Method
+                    && self.trait_of(m).is_some()
+                    && self.has_body(m)
+            })
             .collect();
         if declared.is_empty() {
             return None;
@@ -1644,7 +2128,14 @@ impl<'a> Ctx<'a> {
             .filter(|&m| {
                 let t = self.trait_of(m).unwrap();
                 let ts = self.syms.get(t);
-                self.trait_implemented(&ts.name, Some(&ts.file), name, type_files, receiver_traits, 0) && self.trait_in_scope(&ts.name, r, m)
+                self.trait_implemented(
+                    &ts.name,
+                    Some(&ts.file),
+                    name,
+                    type_files,
+                    receiver_traits,
+                    0,
+                ) && self.trait_in_scope(&ts.name, r, m)
             })
             .collect();
         let traits: HashSet<SymId> = reached.iter().filter_map(|&m| self.trait_of(m)).collect();
@@ -1661,15 +2152,22 @@ impl<'a> Ctx<'a> {
         self.rust_named(method)
             .filter(|&m| {
                 let s = self.syms.get(m);
-                if s.kind != NodeKind::Method || self.trait_of(m).is_some() || self.is_trait_impl_method(m) {
+                if s.kind != NodeKind::Method
+                    || self.trait_of(m).is_some()
+                    || self.is_trait_impl_method(m)
+                {
                     return false;
                 }
-                let Some(owner) = s.owner().and_then(|o| o.rsplit("::").next()) else { return false };
+                let Some(owner) = s.owner().and_then(|o| o.rsplit("::").next()) else {
+                    return false;
+                };
                 *alias_of.entry(owner.to_string()).or_insert_with(|| {
                     owner != name
                         && self.rust_named(owner).any(|n| {
                             self.syms.get(n).kind == NodeKind::TypeAlias
-                                && self.alias_target(n).is_some_and(|t| head_name(&t.text) == name)
+                                && self
+                                    .alias_target(n)
+                                    .is_some_and(|t| head_name(&t.text) == name)
                         })
                 })
             })
@@ -1679,15 +2177,21 @@ impl<'a> Ctx<'a> {
     /// Whether a trait's method declaration has a body.
     pub fn has_body(&self, m: SymId) -> bool {
         let s = self.syms.get(m);
-        let Some(sc) = self.scopes(&s.file) else { return false };
+        let Some(sc) = self.scopes(&s.file) else {
+            return false;
+        };
         let start = self.node_offset(m);
-        sc.fns.iter().any(|f| f.at >= start && sc.line_at(f.at) <= s.end_line.max(s.start_line))
+        sc.fns
+            .iter()
+            .any(|f| f.at >= start && sc.line_at(f.at) <= s.end_line.max(s.start_line))
     }
 
     /// What `impl Deref for Name { type Target = … }` makes a value of `name` hand calls on to.
     fn deref_target(&self, name: &str, type_files: &HashSet<String>) -> Option<Written> {
         for file in type_files {
-            let Some(sc) = self.scopes(file) else { continue };
+            let Some(sc) = self.scopes(file) else {
+                continue;
+            };
             let code = sc.code.as_str();
             if !code.contains("Deref") {
                 continue;
@@ -1697,7 +2201,10 @@ impl<'a> Ctx<'a> {
                     continue;
                 }
                 // The body after this header: find `type Target = …;`.
-                if let Some(pos) = code.find(&format!("Deref for {self_written}")).or_else(|| code.find("Deref for")) {
+                if let Some(pos) = code
+                    .find(&format!("Deref for {self_written}"))
+                    .or_else(|| code.find("Deref for"))
+                {
                     let body = code[pos..].find('{').map(|b| pos + b + 1)?;
                     let window = &code[body..floor_char(code, (body + 600).min(code.len()))];
                     if let Some(t) = window.find("type Target") {
@@ -1724,7 +2231,9 @@ impl<'a> Ctx<'a> {
         while let Some(i) = super::uses::find_word(&window[search..], "type").map(|i| search + i) {
             search = i + 4;
             let rest = window[i + 4..].trim_start();
-            if !rest.starts_with(&s.name) || rest[s.name.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+            if !rest.starts_with(&s.name)
+                || rest[s.name.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_')
+            {
                 continue;
             }
             let mut rest = rest[s.name.len()..].trim_start();
@@ -1754,7 +2263,11 @@ impl<'a> Ctx<'a> {
             let ts = self.syms.get(t);
             let own = self.rust_named(method).find(|&m| {
                 let s = self.syms.get(m);
-                s.kind == NodeKind::Method && s.file == ts.file && s.start_line >= ts.start_line && s.start_line <= ts.end_line && self.trait_of(m) == Some(t)
+                s.kind == NodeKind::Method
+                    && s.file == ts.file
+                    && s.start_line >= ts.start_line
+                    && s.start_line <= ts.end_line
+                    && self.trait_of(m) == Some(t)
             });
             if let Some(o) = own {
                 found.push(o);
@@ -1763,12 +2276,16 @@ impl<'a> Ctx<'a> {
             if depth >= 4 {
                 continue;
             }
-            let Some(supers) = self.trait_supers(t) else { continue };
+            let Some(supers) = self.trait_supers(t) else {
+                continue;
+            };
             for bound in supers {
                 if bound.starts_with('\'') {
                     continue;
                 }
-                let Some((segs, name, _)) = path_head(&bound) else { continue };
+                let Some((segs, name, _)) = path_head(&bound) else {
+                    continue;
+                };
                 let sup: Vec<SymId> = self
                     .type_lookup(&name, &segs, &ts.file, Some(self.node_offset(t)))
                     .nodes
@@ -1791,7 +2308,11 @@ impl<'a> Ctx<'a> {
         let i = super::uses::find_word(window, "trait")?;
         let rest = window[i + 5..].trim_start();
         let rest = rest.strip_prefix(ts.name.as_str())?.trim_start();
-        let rest = if rest.starts_with('<') { &rest[angle_end(rest, 0)? + 1..] } else { rest };
+        let rest = if rest.starts_with('<') {
+            &rest[angle_end(rest, 0)? + 1..]
+        } else {
+            rest
+        };
         let rest = rest.trim_start().strip_prefix(':')?;
         let end = rest.find('{')?;
         let mut header = &rest[..end];
@@ -1802,11 +2323,19 @@ impl<'a> Ctx<'a> {
     }
 
     /// A call on a value known by its traits.
-    pub fn traits_method_call(&self, traits: &[String], written: &Written, method: &str, r: &Ref<'_>) -> Hit {
+    pub fn traits_method_call(
+        &self,
+        traits: &[String],
+        written: &Written,
+        method: &str,
+        r: &Ref<'_>,
+    ) -> Hit {
         let mut found = Vec::new();
         let mut project_traits = 0;
         for bound in traits {
-            let Some((segs, name, _)) = path_head(bound) else { continue };
+            let Some((segs, name, _)) = path_head(bound) else {
+                continue;
+            };
             let nodes: Vec<SymId> = self
                 .type_lookup(&name, &segs, &written.file, Some(written.at))
                 .nodes
@@ -1828,35 +2357,60 @@ impl<'a> Ctx<'a> {
         if owners.len() > 1 {
             return Hit::Nothing;
         }
-        self.provided_method(None, &HashSet::new(), traits, method, r).unwrap_or(Hit::Nothing)
+        self.provided_method(None, &HashSet::new(), traits, method, r)
+            .unwrap_or(Hit::Nothing)
     }
 
     /// Whether a method's body calls the function of its own name on its type.
     fn delegates_to_own(&self, method: SymId, type_name: &str) -> bool {
         let s = self.syms.get(method);
-        let Some(sc) = self.scopes(&s.file) else { return false };
+        let Some(sc) = self.scopes(&s.file) else {
+            return false;
+        };
         let start = sc.offset(s.start_line, 0);
         let end = sc.offset(s.end_line + 1, 0);
         let body = &sc.code[start..end.max(start)];
-        [format!("Self::{}(", s.name), format!("{type_name}::{}(", s.name)]
-            .iter()
-            .any(|p| collapse_ws(body).contains(p.as_str()))
+        [
+            format!("Self::{}(", s.name),
+            format!("{type_name}::{}(", s.name),
+        ]
+        .iter()
+        .any(|p| collapse_ws(body).contains(p.as_str()))
     }
 
     /// A call on a value of a type from outside the project: a project trait's method in scope.
-    fn outside_type_call(&self, name: &str, args: &str, by_ref: bool, method: &str, r: &Ref<'_>) -> Hit {
+    fn outside_type_call(
+        &self,
+        name: &str,
+        args: &str,
+        by_ref: bool,
+        method: &str,
+        r: &Ref<'_>,
+    ) -> Hit {
         let for_outside = |m: SymId| -> bool {
-            let written = self.trait_impl_header(m).map(|h| strip_amp(&h.self_text).to_string()).unwrap_or_default();
+            let written = self
+                .trait_impl_header(m)
+                .map(|h| strip_amp(&h.self_text).to_string())
+                .unwrap_or_default();
             let head = path_head(&written);
-            let (segs, n) = head.map(|h| (h.0, h.1)).unwrap_or((Vec::new(), name.to_string()));
-            let lookup = self.type_lookup(&n, &segs, &self.syms.get(m).file, Some(self.node_offset(m)));
-            lookup.outside || !lookup.nodes.iter().any(|&x| OWNER_KINDS.contains(&self.syms.get(x).kind))
+            let (segs, n) = head
+                .map(|h| (h.0, h.1))
+                .unwrap_or((Vec::new(), name.to_string()));
+            let lookup =
+                self.type_lookup(&n, &segs, &self.syms.get(m).file, Some(self.node_offset(m)));
+            lookup.outside
+                || !lookup
+                    .nodes
+                    .iter()
+                    .any(|&x| OWNER_KINDS.contains(&self.syms.get(x).kind))
         };
         let candidates: Vec<SymId> = self
             .methods_named(name, method)
             .into_iter()
             .filter(|&m| {
-                let Some(h) = self.trait_impl_header(m) else { return false };
+                let Some(h) = self.trait_impl_header(m) else {
+                    return false;
+                };
                 h.self_ == name
                     && self.is_project_named(&h.trait_, &[NodeKind::Trait])
                     && self.trait_in_scope(&h.trait_, r, m)
@@ -1869,28 +2423,50 @@ impl<'a> Ctx<'a> {
             return Hit::Found(instance(impls[0], 0.85));
         }
         if impls.len() > 1 {
-            let matching: Vec<SymId> = impls.iter().copied().filter(|&m| self.impl_self_args(m).is_some_and(|a| a.2) == by_ref).collect();
+            let matching: Vec<SymId> = impls
+                .iter()
+                .copied()
+                .filter(|&m| self.impl_self_args(m).is_some_and(|a| a.2) == by_ref)
+                .collect();
             let pool = if matching.is_empty() { impls } else { matching };
             if pool.len() == 1 {
                 return Hit::Found(instance(pool[0], 0.85));
             }
             let traits: HashSet<String> = pool
                 .iter()
-                .map(|&m| self.trait_impl_header(m).map(|h| format!("{}<{}>", h.trait_, h.trait_args.join(","))).unwrap_or_default())
+                .map(|&m| {
+                    self.trait_impl_header(m)
+                        .map(|h| format!("{}<{}>", h.trait_, h.trait_args.join(",")))
+                        .unwrap_or_default()
+                })
                 .collect();
-            return if traits.len() == 1 { self.pick_method(&pool, &HashSet::new(), r, 0.85) } else { Hit::Nothing };
+            return if traits.len() == 1 {
+                self.pick_method(&pool, &HashSet::new(), r, 0.85)
+            } else {
+                Hit::Nothing
+            };
         }
         if PRIMITIVE_TYPES.contains(&name) {
             let declared: Vec<SymId> = self
                 .rust_named(method)
-                .filter(|&m| self.syms.get(m).kind == NodeKind::Method && self.trait_of(m).is_some())
+                .filter(|&m| {
+                    self.syms.get(m).kind == NodeKind::Method && self.trait_of(m).is_some()
+                })
                 .filter(|&m| {
                     let t = self.trait_of(m).unwrap();
                     let ts = self.syms.get(t);
-                    self.trait_implemented(&ts.name, Some(&ts.file), Some(name), &HashSet::new(), &[], 0) && self.trait_in_scope(&ts.name, r, m)
+                    self.trait_implemented(
+                        &ts.name,
+                        Some(&ts.file),
+                        Some(name),
+                        &HashSet::new(),
+                        &[],
+                        0,
+                    ) && self.trait_in_scope(&ts.name, r, m)
                 })
                 .collect();
-            let traits: HashSet<SymId> = declared.iter().filter_map(|&m| self.trait_of(m)).collect();
+            let traits: HashSet<SymId> =
+                declared.iter().filter_map(|&m| self.trait_of(m)).collect();
             if traits.len() == 1 {
                 return Hit::Found(instance(declared[0], 0.8));
             }
@@ -1898,12 +2474,21 @@ impl<'a> Ctx<'a> {
                 return Hit::Nothing;
             }
         }
-        self.provided_method(is_ident(name).then_some(name), &HashSet::new(), &[], method, r).unwrap_or(Hit::Nothing)
+        self.provided_method(
+            is_ident(name).then_some(name),
+            &HashSet::new(),
+            &[],
+            method,
+            r,
+        )
+        .unwrap_or(Hit::Nothing)
     }
 
     /// The method a Rust call reaches on a value of a type as read.
     pub fn typed_method_call(&self, read: &Read, method: &str, r: &Ref<'_>, depth: u8) -> Hit {
-        let Some(written) = read.written() else { return Hit::Unread };
+        let Some(written) = read.written() else {
+            return Hit::Unread;
+        };
         let wrappers = read.wrappers();
         if wrappers.iter().any(|w| wrapper_own_method(w, method)) {
             return Hit::Nothing;
@@ -1919,12 +2504,18 @@ impl<'a> Ctx<'a> {
             }
             let declared = self.type_lookup(w, &[], &written.file, Some(written.at));
             if !declared.outside && !declared.nodes.is_empty() {
-                let files = declared.nodes.iter().map(|&n| self.syms.get(n).file.clone()).collect();
+                let files = declared
+                    .nodes
+                    .iter()
+                    .map(|&n| self.syms.get(n).file.clone())
+                    .collect();
                 return self.pick_method(&own, &files, r, 0.9);
             }
         }
         if let Some(outer) = wrappers.first() {
-            if SELF_WRAPPERS.contains(&outer.as_str()) && !self.is_project_named(outer, DECLARED_TYPE_KINDS) {
+            if SELF_WRAPPERS.contains(&outer.as_str())
+                && !self.is_project_named(outer, DECLARED_TYPE_KINDS)
+            {
                 let held = match read {
                     Read::Named { name, .. } => Some(name.as_str()),
                     _ => None,
@@ -1935,7 +2526,8 @@ impl<'a> Ctx<'a> {
                     .filter(|&n| self.self_wrapper(n).is_none() && self.impl_for(n, held))
                     .collect();
                 if !on_wrapper.is_empty() {
-                    let inner = self.typed_method_call(&read.without_outer_wrapper(), method, r, depth);
+                    let inner =
+                        self.typed_method_call(&read.without_outer_wrapper(), method, r, depth);
                     if let Hit::Found(m) = inner {
                         if self.self_wrapper(m.target) == Some(outer.as_str()) {
                             return inner;
@@ -1948,9 +2540,20 @@ impl<'a> Ctx<'a> {
         }
         match read {
             Read::Unread => Hit::Unread,
-            Read::Outside { name, by_ref, .. } => self.outside_type_call(name, "", *by_ref, method, r),
-            Read::Traits { traits, written, .. } => self.traits_method_call(traits, written, method, r),
-            Read::Named { name, path, args, by_ref, written, wrappers } => {
+            Read::Outside { name, by_ref, .. } => {
+                self.outside_type_call(name, "", *by_ref, method, r)
+            }
+            Read::Traits {
+                traits, written, ..
+            } => self.traits_method_call(traits, written, method, r),
+            Read::Named {
+                name,
+                path,
+                args,
+                by_ref,
+                written,
+                wrappers,
+            } => {
                 let lookup = self.type_lookup(name, path, &written.file, Some(written.at));
                 if lookup.outside {
                     return self.outside_type_call(&lookup.name, args, *by_ref, method, r);
@@ -1958,10 +2561,17 @@ impl<'a> Ctx<'a> {
                 if lookup.undeclared && self.methods_named(&lookup.name, method).is_empty() {
                     return self.outside_type_call(&lookup.name, args, *by_ref, method, r);
                 }
-                if !lookup.nodes.is_empty() && lookup.nodes.iter().all(|&n| self.syms.get(n).kind == NodeKind::Trait) {
+                if !lookup.nodes.is_empty()
+                    && lookup
+                        .nodes
+                        .iter()
+                        .all(|&n| self.syms.get(n).kind == NodeKind::Trait)
+                {
                     return self.traits_method_call(std::slice::from_ref(name), written, method, r);
                 }
-                if lookup.nodes.len() == 1 && self.syms.get(lookup.nodes[0]).kind == NodeKind::TypeAlias {
+                if lookup.nodes.len() == 1
+                    && self.syms.get(lookup.nodes[0]).kind == NodeKind::TypeAlias
+                {
                     let alias = lookup.nodes[0];
                     let a = self.syms.get(alias);
                     let inherent: Vec<SymId> = self
@@ -1972,7 +2582,11 @@ impl<'a> Ctx<'a> {
                     if !inherent.is_empty() {
                         return self.pick_method(&inherent, &[a.file.clone()].into(), r, 0.9);
                     }
-                    let target = if depth < 4 { self.alias_target(alias) } else { None };
+                    let target = if depth < 4 {
+                        self.alias_target(alias)
+                    } else {
+                        None
+                    };
                     return match target {
                         Some(mut t) => {
                             t.wrappers = wrappers.clone();
@@ -1981,8 +2595,16 @@ impl<'a> Ctx<'a> {
                         None => Hit::Unread,
                     };
                 }
-                let mut types: Vec<SymId> = lookup.nodes.iter().copied().filter(|&n| OWNER_KINDS.contains(&self.syms.get(n).kind)).collect();
-                let distinct_files: HashSet<&str> = types.iter().map(|&t| self.syms.get(t).file.as_str()).collect();
+                let mut types: Vec<SymId> = lookup
+                    .nodes
+                    .iter()
+                    .copied()
+                    .filter(|&n| OWNER_KINDS.contains(&self.syms.get(n).kind))
+                    .collect();
+                let distinct_files: HashSet<&str> = types
+                    .iter()
+                    .map(|&t| self.syms.get(t).file.as_str())
+                    .collect();
                 if types.len() > 1 && distinct_files.len() > 1 {
                     let having: Vec<SymId> = types
                         .iter()
@@ -2000,19 +2622,38 @@ impl<'a> Ctx<'a> {
                     }
                     types = having;
                 }
-                let type_files: HashSet<String> = types.iter().map(|&t| self.syms.get(t).file.clone()).collect();
+                let type_files: HashSet<String> = types
+                    .iter()
+                    .map(|&t| self.syms.get(t).file.clone())
+                    .collect();
                 let scoped = Lookup {
-                    nodes: if lookup.nodes.is_empty() { Vec::new() } else { types.clone() },
+                    nodes: if lookup.nodes.is_empty() {
+                        Vec::new()
+                    } else {
+                        types.clone()
+                    },
                     ..lookup.clone()
                 };
                 let matches = self.owned_methods(&lookup.name, method, &scoped);
-                let inherent: Vec<SymId> = matches.iter().copied().filter(|&m| !self.is_trait_impl_method(m)).collect();
+                let inherent: Vec<SymId> = matches
+                    .iter()
+                    .copied()
+                    .filter(|&m| !self.is_trait_impl_method(m))
+                    .collect();
                 if !inherent.is_empty() {
-                    return self.pick_method(&self.specialized(inherent, args), &type_files, r, 0.9);
+                    return self.pick_method(
+                        &self.specialized(inherent, args),
+                        &type_files,
+                        r,
+                        0.9,
+                    );
                 }
                 let mut via_traits: Vec<(String, Vec<SymId>)> = Vec::new();
                 for &m in &matches {
-                    let t = self.trait_impl_header(m).map(|h| h.trait_).unwrap_or_default();
+                    let t = self
+                        .trait_impl_header(m)
+                        .map(|h| h.trait_)
+                        .unwrap_or_default();
                     match via_traits.iter_mut().find(|(k, _)| *k == t) {
                         Some((_, v)) => v.push(m),
                         None => via_traits.push((t, vec![m])),
@@ -2026,15 +2667,26 @@ impl<'a> Ctx<'a> {
                         return Hit::Nothing;
                     }
                     let mut methods = self.specialized(via_traits.remove(0).1, args);
-                    let trait_args = |m: SymId| self.trait_impl_header(m).map(|h| h.trait_args.join(",")).unwrap_or_default();
-                    let distinct: HashSet<String> = methods.iter().map(|&m| trait_args(m)).collect();
+                    let trait_args = |m: SymId| {
+                        self.trait_impl_header(m)
+                            .map(|h| h.trait_args.join(","))
+                            .unwrap_or_default()
+                    };
+                    let distinct: HashSet<String> =
+                        methods.iter().map(|&m| trait_args(m)).collect();
                     if distinct.len() > 1 {
                         let fit: Vec<SymId> = methods
                             .iter()
                             .copied()
                             .filter(|&m| {
-                                let a = self.trait_impl_header(m).map(|h| h.trait_args).unwrap_or_default();
-                                let head = a.iter().find(|x| x.starts_with(|c: char| c.is_ascii_uppercase())).or(a.first());
+                                let a = self
+                                    .trait_impl_header(m)
+                                    .map(|h| h.trait_args)
+                                    .unwrap_or_default();
+                                let head = a
+                                    .iter()
+                                    .find(|x| x.starts_with(|c: char| c.is_ascii_uppercase()))
+                                    .or(a.first());
                                 head.is_some_and(|h| self.first_arg_is(h, r))
                             })
                             .collect();
@@ -2048,15 +2700,29 @@ impl<'a> Ctx<'a> {
                 }
                 let via_alias = self.alias_impl_methods(&lookup.name, method);
                 if !via_alias.is_empty() {
-                    let owners: HashSet<&str> = via_alias.iter().filter_map(|&m| self.syms.get(m).owner()).collect();
-                    return if owners.len() == 1 { self.pick_method(&via_alias, &type_files, r, 0.85) } else { Hit::Nothing };
+                    let owners: HashSet<&str> = via_alias
+                        .iter()
+                        .filter_map(|&m| self.syms.get(m).owner())
+                        .collect();
+                    return if owners.len() == 1 {
+                        self.pick_method(&via_alias, &type_files, r, 0.85)
+                    } else {
+                        Hit::Nothing
+                    };
                 }
-                if let Some(p) = self.provided_method(Some(&lookup.name), &type_files, &[], method, r) {
+                if let Some(p) =
+                    self.provided_method(Some(&lookup.name), &type_files, &[], method, r)
+                {
                     return p;
                 }
                 if depth < 3 {
                     if let Some(t) = self.deref_target(&lookup.name, &type_files) {
-                        return self.typed_method_call(&self.read_type(&t, r), method, r, depth + 1);
+                        return self.typed_method_call(
+                            &self.read_type(&t, r),
+                            method,
+                            r,
+                            depth + 1,
+                        );
                     }
                 }
                 Hit::Nothing
@@ -2073,16 +2739,24 @@ impl<'a> Ctx<'a> {
 
     /// Whether a call's first argument is evidently a `ty`.
     pub fn first_arg_is(&self, ty: &str, r: &Ref<'_>) -> bool {
-        let Some(src) = self.source(r.file) else { return true };
-        let lines: Vec<&str> = src.lines().collect();
+        let Some(src) = self.source(r.file) else {
+            return true;
+        };
         let li = r.line as usize - 1;
+        let lines: Vec<&str> = src.lines_in(0, li + 5).collect();
         let method = r.name.rsplit([':', '.']).next().unwrap_or(r.name);
-        let mut text = lines.get(li).map(|l| l.get(r.column as usize..).unwrap_or("")).unwrap_or("").to_string();
+        let mut text = lines
+            .get(li)
+            .map(|l| l.get(r.column as usize..).unwrap_or(""))
+            .unwrap_or("")
+            .to_string();
         for l in lines.iter().skip(li + 1).take(4) {
             text.push(' ');
             text.push_str(l);
         }
-        let Some(open) = find_call_open(&text, method) else { return true };
+        let Some(open) = find_call_open(&text, method) else {
+            return true;
+        };
         let b = text.as_bytes();
         let mut depth = 0;
         let mut end = open;
@@ -2120,10 +2794,14 @@ impl<'a> Ctx<'a> {
         let path_is = |a: &str| {
             let mut t = a;
             loop {
-                if t.starts_with(ty) && !t[ty.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+                if t.starts_with(ty)
+                    && !t[ty.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_')
+                {
                     return true;
                 }
-                let Some(id) = super::scopes::ident_at(t, 0) else { return false };
+                let Some(id) = super::scopes::ident_at(t, 0) else {
+                    return false;
+                };
                 match t[id.len()..].strip_prefix("::") {
                     Some(r) => t = r,
                     None => return false,
@@ -2148,7 +2826,12 @@ impl<'a> Ctx<'a> {
                     if rest.starts_with('<') {
                         rest = &rest[angle_end(rest, 0)? + 1..];
                     }
-                    let segs: Vec<&str> = rest.trim_start().split(|c: char| !(c.is_alphanumeric() || c == '_' || c == ':')).next()?.split("::").collect();
+                    let segs: Vec<&str> = rest
+                        .trim_start()
+                        .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == ':'))
+                        .next()?
+                        .split("::")
+                        .collect();
                     segs.last().map(|s| s.to_string())
                 });
                 return self_.as_deref() == Some(ty);
@@ -2180,7 +2863,9 @@ fn impl_headers_for(code: &str, trait_: &str) -> Vec<(Option<String>, String, St
         }
         let head_end = rest.find(['{', ';']).unwrap_or(rest.len());
         let header = &rest[..head_end];
-        let Some(f) = super::uses::find_word(header, "for") else { continue };
+        let Some(f) = super::uses::find_word(header, "for") else {
+            continue;
+        };
         let trait_part = header[..f].trim();
         let tp = trait_part.split('<').next().unwrap_or("").trim();
         let tname = tp.rsplit("::").next().unwrap_or(tp).trim();
@@ -2203,7 +2888,11 @@ fn is_impl_line_text(line: &str) -> bool {
     let t = line.trim_start();
     let t = t.strip_prefix("pub").map_or(t, |r| {
         let r = r.trim_start();
-        if r.starts_with('(') { r.find(')').map_or(r, |e| r[e + 1..].trim_start()) } else { r }
+        if r.starts_with('(') {
+            r.find(')').map_or(r, |e| r[e + 1..].trim_start())
+        } else {
+            r
+        }
     });
     let t = t.strip_prefix("unsafe").map_or(t, str::trim_start);
     super::uses::starts_with_word(t, "impl")
@@ -2236,7 +2925,9 @@ fn declares_with(line: &str, arg: &str, ty: &str) -> bool {
     while let Some(i) = super::uses::find_word(&line[from..], arg).map(|i| from + i) {
         from = i + 1;
         let rest = line[i + arg.len()..].trim_start();
-        let Some(rest) = rest.strip_prefix(':') else { continue };
+        let Some(rest) = rest.strip_prefix(':') else {
+            continue;
+        };
         if rest.starts_with(':') {
             continue;
         }
@@ -2250,24 +2941,34 @@ fn declares_with(line: &str, arg: &str, ty: &str) -> bool {
 
 /// `let [mut] arg = &path::Ty…` on a line.
 fn builds_with(line: &str, arg: &str, ty: &str) -> bool {
-    let Some(i) = super::uses::find_word(line, "let") else { return false };
+    let Some(i) = super::uses::find_word(line, "let") else {
+        return false;
+    };
     let rest = line[i + 3..].trim_start();
     let rest = rest.strip_prefix("mut ").map_or(rest, str::trim_start);
-    let Some(rest) = rest.strip_prefix(arg) else { return false };
+    let Some(rest) = rest.strip_prefix(arg) else {
+        return false;
+    };
     if rest.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
         return false;
     }
-    let Some(rest) = rest.trim_start().strip_prefix('=') else { return false };
+    let Some(rest) = rest.trim_start().strip_prefix('=') else {
+        return false;
+    };
     let t = rest.trim_start().trim_start_matches('&').trim_start();
     strip_path_to(t, ty)
 }
 
 fn strip_path_to(mut t: &str, ty: &str) -> bool {
     loop {
-        if t.starts_with(ty) && !t[ty.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+        if t.starts_with(ty)
+            && !t[ty.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_')
+        {
             return true;
         }
-        let Some(id) = super::scopes::ident_at(t, 0) else { return false };
+        let Some(id) = super::scopes::ident_at(t, 0) else {
+            return false;
+        };
         match t[id.len()..].strip_prefix("::") {
             Some(r) => t = r,
             None => return false,
@@ -2303,7 +3004,12 @@ pub struct Lookup {
 }
 
 /// What the struct's own type parameters are known by inside the impl around `at`.
-fn self_param_bounds(struct_generics: &str, sc: &Scopes, at: usize, file: &str) -> Option<HashMap<String, (Vec<String>, String, usize)>> {
+fn self_param_bounds(
+    struct_generics: &str,
+    sc: &Scopes,
+    at: usize,
+    file: &str,
+) -> Option<ParamBounds> {
     if struct_generics.trim().is_empty() {
         return None;
     }
@@ -2311,7 +3017,11 @@ fn self_param_bounds(struct_generics: &str, sc: &Scopes, at: usize, file: &str) 
     if blk.kind != super::scopes::BlockKind::Impl {
         return None;
     }
-    let mut header = sc.code[blk.at..blk.from].trim_start().strip_prefix("impl")?.trim().to_string();
+    let mut header = sc.code[blk.at..blk.from]
+        .trim_start()
+        .strip_prefix("impl")?
+        .trim()
+        .to_string();
     if header.starts_with('<') {
         let e = angle_end(&header, 0)?;
         header = header[e + 1..].trim().to_string();
@@ -2327,8 +3037,13 @@ fn self_param_bounds(struct_generics: &str, sc: &Scopes, at: usize, file: &str) 
     let params: Vec<String> = split_top_level(struct_generics, ',')
         .iter()
         .map(|p| {
-            let p = p.trim_start().strip_prefix("const ").unwrap_or(p.trim_start());
-            p.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '\'').collect()
+            let p = p
+                .trim_start()
+                .strip_prefix("const ")
+                .unwrap_or(p.trim_start());
+            p.chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '\'')
+                .collect()
         })
         .collect();
     if params.len() != args.len() {
@@ -2337,8 +3052,13 @@ fn self_param_bounds(struct_generics: &str, sc: &Scopes, at: usize, file: &str) 
     let own: HashSet<String> = split_top_level(&blk.generics, ',')
         .iter()
         .map(|p| {
-            let p = p.trim_start().strip_prefix("const ").unwrap_or(p.trim_start());
-            p.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect()
+            let p = p
+                .trim_start()
+                .strip_prefix("const ")
+                .unwrap_or(p.trim_start());
+            p.chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect()
         })
         .collect();
     let mut bounds = HashMap::new();
@@ -2346,7 +3066,13 @@ fn self_param_bounds(struct_generics: &str, sc: &Scopes, at: usize, file: &str) 
         if p.is_empty() || p.starts_with('\'') || !own.contains(arg) {
             continue;
         }
-        if let Some(traits) = bounds_of(arg, &[Generics { generics: &blk.generics, where_: &blk.where_ }]) {
+        if let Some(traits) = bounds_of(
+            arg,
+            &[Generics {
+                generics: &blk.generics,
+                where_: &blk.where_,
+            }],
+        ) {
             if !traits.is_empty() {
                 bounds.insert(p.clone(), (traits, file.to_string(), at));
             }
@@ -2385,11 +3111,17 @@ fn future_output(w: &Written) -> Option<Written> {
             if angle_end(&t, open) != Some(t.len() - 1) {
                 return None;
             }
-            let args: Vec<String> = split_top_level(&t[open + 1..t.len() - 1], ',').into_iter().filter(|a| !a.starts_with('\'')).collect();
+            let args: Vec<String> = split_top_level(&t[open + 1..t.len() - 1], ',')
+                .into_iter()
+                .filter(|a| !a.starts_with('\''))
+                .collect();
             return (args.len() == 1).then(|| w.with_text(args[0].clone()));
         }
     }
-    let rest = t.strip_prefix("impl ").or_else(|| t.strip_prefix("dyn "))?.trim_start();
+    let rest = t
+        .strip_prefix("impl ")
+        .or_else(|| t.strip_prefix("dyn "))?
+        .trim_start();
     let (name, open) = wrapper_head(rest)?;
     if name != "Future" && name != "IntoFuture" {
         return None;
@@ -2399,9 +3131,14 @@ fn future_output(w: &Written) -> Option<Written> {
     if !(after.is_empty() || after.starts_with('+')) {
         return None;
     }
-    let output = split_top_level(&rest[open + 1..end], ',').into_iter().find_map(|a| {
-        a.strip_prefix("Output").map(str::trim_start).and_then(|r| r.strip_prefix('=')).map(|r| r.trim().to_string())
-    })?;
+    let output = split_top_level(&rest[open + 1..end], ',')
+        .into_iter()
+        .find_map(|a| {
+            a.strip_prefix("Output")
+                .map(str::trim_start)
+                .and_then(|r| r.strip_prefix('='))
+                .map(|r| r.trim().to_string())
+        })?;
     Some(w.with_text(output))
 }
 
@@ -2439,39 +3176,67 @@ fn is_fn_type(t: &str) -> bool {
         }
         if let Some(r) = s.strip_prefix("extern ") {
             let r = r.trim_start();
-            s = if r.starts_with('"') { r[1..].find('"').map_or(r, |e| r[e + 2..].trim_start()) } else { r };
+            s = match r.strip_prefix('"') {
+                Some(q) => q.find('"').map_or(r, |e| q[e + 1..].trim_start()),
+                None => r,
+            };
             continue;
         }
         break;
     }
-    s.strip_prefix("fn").is_some_and(|r| r.trim_start().starts_with('('))
+    s.strip_prefix("fn")
+        .is_some_and(|r| r.trim_start().starts_with('('))
 }
 
 fn is_literal(v: &str) -> bool {
     let t = v.trim();
-    if t.starts_with('"') || t.starts_with("r\"") || t.starts_with("r#") || t.starts_with("b\"") || t.starts_with("br") || t.starts_with("c\"") {
+    if t.starts_with('"')
+        || t.starts_with("r\"")
+        || t.starts_with("r#")
+        || t.starts_with("b\"")
+        || t.starts_with("br")
+        || t.starts_with("c\"")
+    {
         return t.ends_with('"') || t.ends_with('#');
     }
     if (t.starts_with('\'') || t.starts_with("b'")) && t.ends_with('\'') {
         return true;
     }
     let num = t.strip_prefix('-').unwrap_or(t);
-    if num.starts_with(|c: char| c.is_ascii_digit()) && num.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.') {
+    if num.starts_with(|c: char| c.is_ascii_digit())
+        && num
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+    {
         return true;
     }
-    t == "true" || t == "false" || t.starts_with('|') || t.starts_with("move |") || t.starts_with("move|")
+    t == "true"
+        || t == "false"
+        || t.starts_with('|')
+        || t.starts_with("move |")
+        || t.starts_with("move|")
 }
 
 fn is_screaming(s: &str) -> bool {
-    s.len() > 1 && s.starts_with(|c: char| c.is_ascii_uppercase()) && s.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    s.len() > 1
+        && s.starts_with(|c: char| c.is_ascii_uppercase())
+        && s.chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
 /// `Box::new` / `std::rc::Rc::pin` / `Arc::from` → the wrapper.
 fn box_like(callee: &str) -> Option<&'static str> {
-    let c = ["std::boxed::", "std::rc::", "std::sync::", "alloc::boxed::", "alloc::rc::", "alloc::sync::"]
-        .iter()
-        .find_map(|p| callee.strip_prefix(p))
-        .unwrap_or(callee);
+    let c = [
+        "std::boxed::",
+        "std::rc::",
+        "std::sync::",
+        "alloc::boxed::",
+        "alloc::rc::",
+        "alloc::sync::",
+    ]
+    .iter()
+    .find_map(|p| callee.strip_prefix(p))
+    .unwrap_or(callee);
     let (w, f) = c.split_once("::")?;
     if !matches!(f, "new" | "pin" | "from") {
         return None;
@@ -2482,7 +3247,9 @@ fn box_like(callee: &str) -> Option<&'static str> {
 fn strip_suffix_ws<'s>(s: &'s str, suffix: &str) -> Option<&'s str> {
     let t = s.trim_end();
     let r = t.strip_suffix(suffix)?;
-    if suffix.chars().all(|c| c.is_alphanumeric() || c == '_') && r.ends_with(|c: char| c.is_alphanumeric() || c == '_') {
+    if suffix.chars().all(|c| c.is_alphanumeric() || c == '_')
+        && r.ends_with(|c: char| c.is_alphanumeric() || c == '_')
+    {
         return None;
     }
     Some(r.trim_end())
@@ -2499,7 +3266,9 @@ fn split_method_callee(callee: &str) -> Option<(String, String, Option<String>)>
     };
     let body = body.trim_end();
     let end = body.len();
-    let start = body.rfind(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_')).map_or(0, |p| p + 1);
+    let start = body
+        .rfind(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+        .map_or(0, |p| p + 1);
     let method = &body[start..end];
     if method.is_empty() || !method.starts_with(|ch: char| ch.is_ascii_lowercase() || ch == '_') {
         return None;
@@ -2514,7 +3283,9 @@ fn split_method_callee(callee: &str) -> Option<(String, String, Option<String>)>
 /// `recv.field` / `recv.0` → parts.
 fn split_field_access(v: &str) -> Option<(String, String)> {
     let t = v.trim_end();
-    let start = t.rfind(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_')).map_or(0, |p| p + 1);
+    let start = t
+        .rfind(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+        .map_or(0, |p| p + 1);
     let field = &t[start..];
     if field.is_empty() {
         return None;
@@ -2536,7 +3307,9 @@ fn struct_literal_path(v: &str) -> Option<String> {
         }
     }
     let segs: Vec<&str> = head.split("::").map(str::trim).collect();
-    if !segs.iter().all(|s| is_ident(s)) || !segs.last()?.starts_with(|c: char| c.is_ascii_uppercase()) {
+    if !segs.iter().all(|s| is_ident(s))
+        || !segs.last()?.starts_with(|c: char| c.is_ascii_uppercase())
+    {
         return None;
     }
     Some(segs.join("::"))
@@ -2548,7 +3321,10 @@ fn replace_idents(text: &str, bound: &HashMap<String, String>) -> String {
     let mut i = 0;
     while i < b.len() {
         let c = b[i];
-        if (c.is_ascii_alphabetic() || c == b'_') && (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_' || b[i - 1] == b'\'')) {
+        if (c.is_ascii_alphabetic() || c == b'_')
+            && (i == 0
+                || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_' || b[i - 1] == b'\''))
+        {
             let s = i;
             while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
                 i += 1;
@@ -2637,7 +3413,36 @@ fn std_iterator(name: &str) -> Option<&'static str> {
     }
 }
 
-const ITEM_ADAPTERS: &[&str] = &["iter", "iter_mut", "into_iter", "drain", "rev", "copied", "cloned", "skip", "take", "step_by", "peekable", "by_ref", "fuse"];
-const STD_SEQUENCES: &[&str] = &["Vec", "VecDeque", "HashSet", "BTreeSet", "BinaryHeap", "LinkedList", "Option", "IndexSet", "SmallVec"];
+const ITEM_ADAPTERS: &[&str] = &[
+    "iter",
+    "iter_mut",
+    "into_iter",
+    "drain",
+    "rev",
+    "copied",
+    "cloned",
+    "skip",
+    "take",
+    "step_by",
+    "peekable",
+    "by_ref",
+    "fuse",
+];
+const STD_SEQUENCES: &[&str] = &[
+    "Vec",
+    "VecDeque",
+    "HashSet",
+    "BTreeSet",
+    "BinaryHeap",
+    "LinkedList",
+    "Option",
+    "IndexSet",
+    "SmallVec",
+];
 const STD_MAPS: &[&str] = &["HashMap", "BTreeMap", "IndexMap"];
-const ITERATOR_TRAITS: &[&str] = &["Iterator", "IntoIterator", "DoubleEndedIterator", "ExactSizeIterator"];
+const ITERATOR_TRAITS: &[&str] = &[
+    "Iterator",
+    "IntoIterator",
+    "DoubleEndedIterator",
+    "ExactSizeIterator",
+];

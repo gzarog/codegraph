@@ -54,7 +54,9 @@ fn manifest_dependencies(text: &str) -> Vec<ManifestDep> {
                 continue;
             }
             let rest = fields[at + key.len()..].trim_start();
-            let Some(rest) = rest.strip_prefix('=') else { continue };
+            let Some(rest) = rest.strip_prefix('=') else {
+                continue;
+            };
             let rest = rest.trim_start().strip_prefix('"')?;
             return rest.split('"').next();
         }
@@ -100,13 +102,9 @@ fn manifest_dependencies(text: &str) -> Vec<ManifestDep> {
             } else {
                 (None, "")
             };
-            let of = of.filter(|_| sub.is_empty() || sub.starts_with('.')).map(|k| {
-                if ws {
-                    DepKind::Workspace
-                } else {
-                    k
-                }
-            });
+            let of = of
+                .filter(|_| sub.is_empty() || sub.starts_with('.'))
+                .map(|k| if ws { DepKind::Workspace } else { k });
             let sub = sub.strip_prefix('.').unwrap_or("");
             kind = of.filter(|_| sub.is_empty());
             table = match of {
@@ -121,13 +119,19 @@ fn manifest_dependencies(text: &str) -> Vec<ManifestDep> {
         }
         let Some(k) = kind else { continue };
         // `"name" = …`, `name.workspace = true`, `name = { … }`
-        let Some((lhs, rhs)) = line.split_once('=') else { continue };
+        let Some((lhs, rhs)) = line.split_once('=') else {
+            continue;
+        };
         let lhs = lhs.trim().trim_matches('"');
         let (name, dotted) = match lhs.split_once('.') {
             Some((n, d)) => (n.trim(), Some(d.trim())),
             None => (lhs, None),
         };
-        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        {
             continue;
         }
         let i = entry(&mut deps, k, name);
@@ -145,7 +149,11 @@ fn package_name(text: &str) -> Option<String> {
     section(text, "package").and_then(|s| {
         s.lines().find_map(|l| {
             let l = l.trim();
-            let rest = l.strip_prefix("name")?.trim_start().strip_prefix('=')?.trim();
+            let rest = l
+                .strip_prefix("name")?
+                .trim_start()
+                .strip_prefix('=')?
+                .trim();
             let q = rest.chars().next().filter(|c| *c == '"' || *c == '\'')?;
             rest[1..].split(q).next().map(|n| n.trim().to_string())
         })
@@ -158,12 +166,10 @@ fn section<'a>(text: &'a str, name: &str) -> Option<&'a str> {
     let mut offset = 0;
     for line in text.split_inclusive('\n') {
         let t = line.trim();
-        if start.is_none() {
-            if t == want {
-                start = Some(offset + line.len());
-            }
-        } else if t.starts_with('[') && t.ends_with(']') {
-            return Some(&text[start.unwrap()..offset]);
+        match start {
+            None if t == want => start = Some(offset + line.len()),
+            Some(s) if t.starts_with('[') && t.ends_with(']') => return Some(&text[s..offset]),
+            _ => {}
         }
         offset += line.len();
     }
@@ -172,16 +178,42 @@ fn section<'a>(text: &'a str, name: &str) -> Option<&'a str> {
 
 /// `[workspace] members = [ … ]`, globs expanded against the directories on disk.
 fn workspace_members(root: &Path, text: &str) -> Vec<String> {
-    let Some(ws) = section(text, "workspace") else { return Vec::new() };
-    let Some(at) = ws.find("members") else { return Vec::new() };
+    let Some(ws) = section(text, "workspace") else {
+        return Vec::new();
+    };
+    let Some(at) = ws.find("members") else {
+        return Vec::new();
+    };
     let rest = &ws[at + "members".len()..];
-    let Some(rest) = rest.trim_start().strip_prefix('=') else { return Vec::new() };
-    let Some(rest) = rest.trim_start().strip_prefix('[') else { return Vec::new() };
-    let list = rest.split(']').next().unwrap_or("");
+    let Some(rest) = rest.trim_start().strip_prefix('=') else {
+        return Vec::new();
+    };
+    let Some(rest) = rest.trim_start().strip_prefix('[') else {
+        return Vec::new();
+    };
+    // The quoted values up to the closing `]`, comments aside.
+    let mut values = Vec::new();
+    let mut quote: Option<char> = None;
+    let mut cur = String::new();
+    let mut comment = false;
+    for ch in rest.chars() {
+        match quote {
+            Some(q) if ch == q => {
+                values.push(std::mem::take(&mut cur));
+                quote = None;
+            }
+            Some(_) => cur.push(ch),
+            None if comment => comment = ch != '\n',
+            None if ch == '#' => comment = true,
+            None if ch == '"' || ch == '\'' => quote = Some(ch),
+            None if ch == ']' => break,
+            None => {}
+        }
+    }
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    for raw in list.split(',') {
-        let m = raw.trim().trim_matches(|c| c == '"' || c == '\'').trim();
+    for raw in values {
+        let m = raw.trim();
         if m.is_empty() {
             continue;
         }
@@ -201,18 +233,24 @@ fn workspace_members(root: &Path, text: &str) -> Vec<String> {
 }
 
 fn expand_glob(root: &Path, pattern: &str) -> Vec<String> {
-    let Ok(glob) = globset::Glob::new(pattern) else { return Vec::new() };
+    let Ok(glob) = globset::Glob::new(pattern) else {
+        return Vec::new();
+    };
     let matcher = glob.compile_matcher();
     let prefix: String = {
         let first = pattern.find(['*', '?', '[', '{']).unwrap_or(pattern.len());
-        pattern[..first].rsplit_once('/').map_or(String::new(), |(p, _)| p.to_string())
+        pattern[..first]
+            .rsplit_once('/')
+            .map_or(String::new(), |(p, _)| p.to_string())
     };
     let mut out = Vec::new();
     fn walk(root: &Path, dir: &str, depth: u8, m: &globset::GlobMatcher, out: &mut Vec<String>) {
         if depth > 5 {
             return;
         }
-        let Ok(rd) = std::fs::read_dir(root.join(dir)) else { return };
+        let Ok(rd) = std::fs::read_dir(root.join(dir)) else {
+            return;
+        };
         let mut names: Vec<String> = rd
             .flatten()
             .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
@@ -220,10 +258,16 @@ fn expand_glob(root: &Path, pattern: &str) -> Vec<String> {
             .collect();
         names.sort();
         for name in names {
-            if name.starts_with('.') || matches!(name.as_str(), "target" | "node_modules" | "dist" | "build") {
+            if name.starts_with('.')
+                || matches!(name.as_str(), "target" | "node_modules" | "dist" | "build")
+            {
                 continue;
             }
-            let rel = if dir.is_empty() { name } else { format!("{dir}/{name}") };
+            let rel = if dir.is_empty() {
+                name
+            } else {
+                format!("{dir}/{name}")
+            };
             if m.is_match(&rel) {
                 out.push(rel.clone());
             }
@@ -262,7 +306,11 @@ fn read(root: &Path, rel: &str) -> Option<String> {
 
 /// `dir` joined with `rel`, as a project directory; none when it leaves the project.
 fn join(dir: &str, rel: &str) -> Option<String> {
-    let mut parts: Vec<&str> = if dir.is_empty() { Vec::new() } else { dir.split('/').collect() };
+    let mut parts: Vec<&str> = if dir.is_empty() {
+        Vec::new()
+    } else {
+        dir.split('/').collect()
+    };
     for seg in rel.split('/') {
         match seg {
             "" | "." => {}
@@ -285,14 +333,28 @@ impl CrateGraph {
         let members = workspace_members(root, &root_toml);
         let mut manifests: HashMap<String, String> = HashMap::new();
         let mut by_name: HashMap<String, String> = HashMap::new();
-        let add = |g: &mut CrateGraph, manifests: &mut HashMap<String, String>, by_name: &mut HashMap<String, String>, dir: &str| -> bool {
+        let add = |g: &mut CrateGraph,
+                   manifests: &mut HashMap<String, String>,
+                   by_name: &mut HashMap<String, String>,
+                   dir: &str|
+         -> bool {
             if g.crates.contains_key(dir) {
                 return true;
             }
-            let path = if dir.is_empty() { "Cargo.toml".to_string() } else { format!("{dir}/Cargo.toml") };
-            let Some(text) = read(root, &path) else { return false };
-            let Some(name) = package_name(&text).map(|n| n.replace('-', "_")) else { return false };
-            by_name.entry(name.clone()).or_insert_with(|| dir.to_string());
+            let path = if dir.is_empty() {
+                "Cargo.toml".to_string()
+            } else {
+                format!("{dir}/Cargo.toml")
+            };
+            let Some(text) = read(root, &path) else {
+                return false;
+            };
+            let Some(name) = package_name(&text).map(|n| n.replace('-', "_")) else {
+                return false;
+            };
+            by_name
+                .entry(name.clone())
+                .or_insert_with(|| dir.to_string());
             g.crates.insert(
                 dir.to_string(),
                 Crate {
@@ -344,7 +406,9 @@ impl CrateGraph {
                     Some(at) if g.crates.contains_key(at) => Some(at.clone()),
                     _ => by_name.get(shared.map_or(&dep.pkg, |s| &s.pkg)).cloned(),
                 };
-                let Some(to) = to.filter(|t| *t != dir) else { continue };
+                let Some(to) = to.filter(|t| *t != dir) else {
+                    continue;
+                };
                 let c = g.crates.get_mut(&dir).unwrap();
                 c.keys.insert(dep.key.clone(), to.clone());
                 if dep.kind == DepKind::Normal {
@@ -369,7 +433,11 @@ impl CrateGraph {
         let mut manifest_dirs = vec![String::new()];
         manifest_dirs.extend(members.iter().cloned());
         for dir in manifest_dirs {
-            let path = if dir.is_empty() { "Cargo.toml".to_string() } else { format!("{dir}/Cargo.toml") };
+            let path = if dir.is_empty() {
+                "Cargo.toml".to_string()
+            } else {
+                format!("{dir}/Cargo.toml")
+            };
             for d in manifest_dependencies(&read(root, &path).unwrap_or_default()) {
                 g.dependencies.insert(d.key);
             }
@@ -400,8 +468,14 @@ impl CrateGraph {
     }
 
     /// Whether a `use` path from one of `roots` in `from_file` can name an item in `target_file`, by its crate.
-    pub fn use_can_reach<'r>(&self, roots: impl IntoIterator<Item = &'r str>, target_file: &str, from_file: &str) -> bool {
-        let (Some(at), Some(own)) = (self.crate_dir_of(target_file), self.crate_dir_of(from_file)) else {
+    pub fn use_can_reach<'r>(
+        &self,
+        roots: impl IntoIterator<Item = &'r str>,
+        target_file: &str,
+        from_file: &str,
+    ) -> bool {
+        let (Some(at), Some(own)) = (self.crate_dir_of(target_file), self.crate_dir_of(from_file))
+        else {
             return true;
         };
         let krate = &self.crates[own];
@@ -431,7 +505,10 @@ impl CrateGraph {
         if !self.dependencies.contains(root) {
             return false;
         }
-        if self.crate_of(from_file).is_some_and(|c| c.keys.contains_key(root)) {
+        if self
+            .crate_of(from_file)
+            .is_some_and(|c| c.keys.contains_key(root))
+        {
             return false;
         }
         !self.crates.values().any(|c| c.name == root)
@@ -447,7 +524,8 @@ mod tests {
         let deps = manifest_dependencies(
             "[package]\nname = \"a\"\n\n[dependencies]\nfoo-bar = \"1\"\nshared = { package = \"shared-types\", path = \"../types\" }\nhelper.workspace = true\n\n[dependencies.baz]\npath = \"../baz\"\n\n[dev-dependencies]\nt = \"1\"\n[workspace.dependencies]\nhelper = { path = \"helper\" }\n",
         );
-        let get = |k: &str, kind: DepKind| deps.iter().find(|d| d.key == k && d.kind == kind).unwrap();
+        let get =
+            |k: &str, kind: DepKind| deps.iter().find(|d| d.key == k && d.kind == kind).unwrap();
         assert_eq!(get("foo_bar", DepKind::Normal).pkg, "foo_bar");
         let s = get("shared", DepKind::Normal);
         assert_eq!(s.pkg, "shared_types");
@@ -455,7 +533,19 @@ mod tests {
         assert!(get("helper", DepKind::Normal).workspace);
         assert_eq!(get("baz", DepKind::Normal).path.as_deref(), Some("../baz"));
         assert_eq!(get("t", DepKind::Dev).kind, DepKind::Dev);
-        assert_eq!(get("helper", DepKind::Workspace).path.as_deref(), Some("helper"));
+        assert_eq!(
+            get("helper", DepKind::Workspace).path.as_deref(),
+            Some("helper")
+        );
+    }
+
+    #[test]
+    fn reads_workspace_members_past_comments() {
+        let m = workspace_members(
+            Path::new("/nonexistent"),
+            "[workspace]\nresolver = \"2\"\nmembers = [\n  \"tokio\",\n\n  # Internal\n  \"benches\",\n]\n\n[patch.crates-io]\n",
+        );
+        assert_eq!(m, vec!["tokio", "benches"]);
     }
 
     #[test]

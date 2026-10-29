@@ -24,9 +24,39 @@ pub const STD_ROOTS: &[&str] = &["std", "core", "alloc", "proc_macro"];
 
 /// Names the Rust prelude puts in every module.
 pub const PRELUDE: &[&str] = &[
-    "Ok", "Err", "Some", "None", "Result", "Option", "Box", "Vec", "String", "Default", "Drop", "Iterator", "IntoIterator", "From",
-    "Into", "Clone", "Copy", "Send", "Sync", "Sized", "ToString", "ToOwned", "PartialEq", "Eq", "PartialOrd", "Ord", "AsRef", "AsMut",
-    "Fn", "FnMut", "FnOnce", "Extend", "drop",
+    "Ok",
+    "Err",
+    "Some",
+    "None",
+    "Result",
+    "Option",
+    "Box",
+    "Vec",
+    "String",
+    "Default",
+    "Drop",
+    "Iterator",
+    "IntoIterator",
+    "From",
+    "Into",
+    "Clone",
+    "Copy",
+    "Send",
+    "Sync",
+    "Sized",
+    "ToString",
+    "ToOwned",
+    "PartialEq",
+    "Eq",
+    "PartialOrd",
+    "Ord",
+    "AsRef",
+    "AsMut",
+    "Fn",
+    "FnMut",
+    "FnOnce",
+    "Extend",
+    "drop",
 ];
 
 /// Rust items declared in a module, whose own `pub` (or its absence) says who can name them.
@@ -41,27 +71,97 @@ pub const MODULE_ITEM_KINDS: &[NodeKind] = &[
     NodeKind::Variable,
 ];
 
-pub const DECLARED_TYPE_KINDS: &[NodeKind] = &[NodeKind::Struct, NodeKind::Enum, NodeKind::Union, NodeKind::TypeAlias, NodeKind::Trait];
+pub const DECLARED_TYPE_KINDS: &[NodeKind] = &[
+    NodeKind::Struct,
+    NodeKind::Enum,
+    NodeKind::Union,
+    NodeKind::TypeAlias,
+    NodeKind::Trait,
+];
 pub const OWNER_KINDS: &[NodeKind] = &[NodeKind::Struct, NodeKind::Enum, NodeKind::Union];
 
 /// Std types a crate can implement a trait for but never declare a method on.
 pub const STD_TYPES: &[&str] = &[
-    "String", "str", "Vec", "VecDeque", "HashMap", "HashSet", "BTreeMap", "BTreeSet", "BinaryHeap", "LinkedList", "Box", "Rc", "Arc",
-    "Weak", "Cow", "Cell", "RefCell", "Mutex", "RwLock", "Option", "Result", "PathBuf", "Path", "OsString", "OsStr", "CString", "CStr",
-    "NonNull", "Pin", "Duration", "Instant", "SystemTime", "PhantomData", "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16",
-    "i32", "i64", "i128", "isize", "f32", "f64", "bool", "char",
+    "String",
+    "str",
+    "Vec",
+    "VecDeque",
+    "HashMap",
+    "HashSet",
+    "BTreeMap",
+    "BTreeSet",
+    "BinaryHeap",
+    "LinkedList",
+    "Box",
+    "Rc",
+    "Arc",
+    "Weak",
+    "Cow",
+    "Cell",
+    "RefCell",
+    "Mutex",
+    "RwLock",
+    "Option",
+    "Result",
+    "PathBuf",
+    "Path",
+    "OsString",
+    "OsStr",
+    "CString",
+    "CStr",
+    "NonNull",
+    "Pin",
+    "Duration",
+    "Instant",
+    "SystemTime",
+    "PhantomData",
+    "u8",
+    "u16",
+    "u32",
+    "u64",
+    "u128",
+    "usize",
+    "i8",
+    "i16",
+    "i32",
+    "i64",
+    "i128",
+    "isize",
+    "f32",
+    "f64",
+    "bool",
+    "char",
 ];
 
 pub const PRIMITIVE_TYPES: &[&str] = &[
-    "bool", "char", "str", "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64", "i128", "isize", "f32", "f64",
+    "bool", "char", "str", "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64",
+    "i128", "isize", "f32", "f64",
 ];
 
 /// Types that hand a method call on to what they hold when the method is not their own.
 pub const DEREF_WRAPPERS: &[&str] = &[
-    "Box", "Rc", "Arc", "Pin", "Cow", "MutexGuard", "RwLockReadGuard", "RwLockWriteGuard", "Ref", "RefMut", "ManuallyDrop",
+    "Box",
+    "Rc",
+    "Arc",
+    "Pin",
+    "Cow",
+    "MutexGuard",
+    "RwLockReadGuard",
+    "RwLockWriteGuard",
+    "Ref",
+    "RefMut",
+    "ManuallyDrop",
 ];
 pub const SELF_WRAPPERS: &[&str] = &["Pin", "Box", "Rc", "Arc"];
-pub const MARKER_TRAITS: &[&str] = &["Send", "Sync", "Unpin", "Sized", "Copy", "UnwindSafe", "RefUnwindSafe"];
+pub const MARKER_TRAITS: &[&str] = &[
+    "Send",
+    "Sync",
+    "Unpin",
+    "Sized",
+    "Copy",
+    "UnwindSafe",
+    "RefUnwindSafe",
+];
 
 const RC_INHERENT: &str = "new new_cyclic new_uninit new_uninit_slice new_zeroed pin try_new try_unwrap into_inner unwrap_or_clone into_raw as_ptr from_raw increment_strong_count decrement_strong_count downgrade weak_count strong_count get_mut make_mut ptr_eq downcast assume_init";
 const PIN_METHODS: &str = "as_ref as_mut as_deref_mut set get_ref get_mut get_unchecked_mut into_ref map_unchecked map_unchecked_mut";
@@ -100,27 +200,133 @@ pub fn wrapper_own_method(wrapper: &str, name: &str) -> bool {
         "RwLockReadGuard" | "Ref" => return matches!(name, "deref" | "fmt"),
         _ => return false,
     };
-    POINTER_TRAIT_METHODS.split(' ').chain(extra.split(' ')).any(|n| n == name)
+    POINTER_TRAIT_METHODS
+        .split(' ')
+        .chain(extra.split(' '))
+        .any(|n| n == name)
 }
 
 /// Methods of Rust's Option / Result / iterators / collections / strings / smart pointers.
 const STD_METHODS: &[&str] = &[
-    "unwrap", "unwrap_or", "unwrap_or_else", "unwrap_or_default", "unwrap_err", "unwrap_unchecked", "expect", "expect_err", "ok", "err",
-    "map", "map_err", "map_or", "map_or_else", "and_then", "or_else", "ok_or", "ok_or_else", "is_some", "is_none", "is_ok", "is_err",
-    "is_some_and", "as_ref", "as_mut", "as_deref", "clone", "cloned", "copied", "iter", "iter_mut", "into_iter", "collect", "enumerate",
-    "zip", "rev", "chain", "skip", "step_by", "peekable", "flat_map", "filter_map", "flatten", "any", "all", "len", "is_empty", "push",
-    "push_str", "pop", "extend", "drain", "clear", "retain", "truncate", "reserve", "with_capacity", "capacity", "sort", "sort_by",
-    "sort_by_key", "dedup", "split_off", "contains_key", "to_string", "to_owned", "to_vec", "as_str", "as_bytes", "as_slice", "as_ptr",
-    "into", "try_into", "borrow", "borrow_mut", "deref", "deref_mut", "chars", "bytes", "lines", "starts_with", "ends_with", "trim",
-    "to_lowercase", "to_uppercase", "windows", "chunks", "then", "then_some", "eq", "cmp", "partial_cmp", "read_to_end", "read_to_string",
-    "fetch_add", "fetch_sub", "current_dir", "stdout", "stderr", "stdin", "success", "failure",
+    "unwrap",
+    "unwrap_or",
+    "unwrap_or_else",
+    "unwrap_or_default",
+    "unwrap_err",
+    "unwrap_unchecked",
+    "expect",
+    "expect_err",
+    "ok",
+    "err",
+    "map",
+    "map_err",
+    "map_or",
+    "map_or_else",
+    "and_then",
+    "or_else",
+    "ok_or",
+    "ok_or_else",
+    "is_some",
+    "is_none",
+    "is_ok",
+    "is_err",
+    "is_some_and",
+    "as_ref",
+    "as_mut",
+    "as_deref",
+    "clone",
+    "cloned",
+    "copied",
+    "iter",
+    "iter_mut",
+    "into_iter",
+    "collect",
+    "enumerate",
+    "zip",
+    "rev",
+    "chain",
+    "skip",
+    "step_by",
+    "peekable",
+    "flat_map",
+    "filter_map",
+    "flatten",
+    "any",
+    "all",
+    "len",
+    "is_empty",
+    "push",
+    "push_str",
+    "pop",
+    "extend",
+    "drain",
+    "clear",
+    "retain",
+    "truncate",
+    "reserve",
+    "with_capacity",
+    "capacity",
+    "sort",
+    "sort_by",
+    "sort_by_key",
+    "dedup",
+    "split_off",
+    "contains_key",
+    "to_string",
+    "to_owned",
+    "to_vec",
+    "as_str",
+    "as_bytes",
+    "as_slice",
+    "as_ptr",
+    "into",
+    "try_into",
+    "borrow",
+    "borrow_mut",
+    "deref",
+    "deref_mut",
+    "chars",
+    "bytes",
+    "lines",
+    "starts_with",
+    "ends_with",
+    "trim",
+    "to_lowercase",
+    "to_uppercase",
+    "windows",
+    "chunks",
+    "then",
+    "then_some",
+    "eq",
+    "cmp",
+    "partial_cmp",
+    "read_to_end",
+    "read_to_string",
+    "fetch_add",
+    "fetch_sub",
+    "current_dir",
+    "stdout",
+    "stderr",
+    "stdin",
+    "success",
+    "failure",
 ];
 
 /// Whether a Rust item is an associated one: a `type` or `const` written in an `impl` or a trait.
 pub fn is_associated_item(s: &Sym) -> bool {
     s.language == Language::Rust
-        && matches!(s.kind, NodeKind::TypeAlias | NodeKind::Variable | NodeKind::Constant)
+        && matches!(
+            s.kind,
+            NodeKind::TypeAlias | NodeKind::Variable | NodeKind::Constant
+        )
         && s.qualified_name.contains("::")
+}
+
+/// What a Rust reference of `kind` may point at: a variant is built by a call (`Mode::C(x)`) or a literal (`Mode::D { … }`).
+pub fn accepts(kind: ReferenceKind, target: NodeKind) -> bool {
+    kind_accepts(kind, target)
+        || (target == NodeKind::EnumMember
+            && matches!(kind, ReferenceKind::Calls | ReferenceKind::Instantiates))
 }
 
 fn qualified(target: SymId, confidence: f32) -> Match {
@@ -167,7 +373,9 @@ fn chained_call(name: &str) -> Option<(Vec<String>, String)> {
     }
     for l in &parts[1..] {
         let id = l.strip_suffix("()").unwrap_or(l);
-        if !(is_ident(id) || (!l.ends_with("()") && l.chars().all(|c| c.is_ascii_digit()) && !l.is_empty())) {
+        if !(is_ident(id)
+            || (!l.ends_with("()") && l.chars().all(|c| c.is_ascii_digit()) && !l.is_empty()))
+        {
             return None;
         }
     }
@@ -180,7 +388,11 @@ fn chained_call(name: &str) -> Option<(Vec<String>, String)> {
 
 impl<'a> Ctx<'a> {
     /// Resolve a Rust reference; `generic` runs the language-generic strategies.
-    pub fn resolve(&self, r: &Ref<'_>, generic: &mut dyn FnMut(&str) -> Option<Match>) -> Option<Match> {
+    pub fn resolve(
+        &self,
+        r: &Ref<'_>,
+        generic: &mut dyn FnMut(&str) -> Option<Match>,
+    ) -> Option<Match> {
         if r.kind == ReferenceKind::Imports {
             return self.resolve_import(r, generic);
         }
@@ -199,7 +411,11 @@ impl<'a> Ctx<'a> {
         self.resolve_by_name(r, generic)
     }
 
-    fn resolve_by_name(&self, r: &Ref<'_>, generic: &mut dyn FnMut(&str) -> Option<Match>) -> Option<Match> {
+    fn resolve_by_name(
+        &self,
+        r: &Ref<'_>,
+        generic: &mut dyn FnMut(&str) -> Option<Match>,
+    ) -> Option<Match> {
         match self.strategies(r) {
             Outcome::Hit(m) => return self.gate(Some(m), r),
             Outcome::None => return None,
@@ -210,7 +426,9 @@ impl<'a> Ctx<'a> {
                 return Some(m);
             }
             // The generic strategies only where no Rust declaration of the name is in reach.
-            let any = self.rust_named(r.name).any(|i| kind_accepts(r.kind, self.syms.get(i).kind));
+            let any = self
+                .rust_named(r.name)
+                .any(|i| accepts(r.kind, self.syms.get(i).kind));
             if any {
                 return None;
             }
@@ -247,7 +465,8 @@ impl<'a> Ctx<'a> {
                         };
                     }
                 }
-                if is_ident(recv) && recv.starts_with(|c: char| c.is_ascii_lowercase() || c == '_') {
+                if is_ident(recv) && recv.starts_with(|c: char| c.is_ascii_lowercase() || c == '_')
+                {
                     match self.typed_receiver_call(recv, method, r) {
                         Some(Hit::Found(m)) => return Outcome::Hit(m),
                         Some(Hit::Nothing) => return Outcome::None,
@@ -269,7 +488,10 @@ impl<'a> Ctx<'a> {
                         };
                     }
                 }
-                if is_ident(owner) && owner.starts_with(|c: char| c.is_ascii_uppercase()) && owner != "Self" {
+                if is_ident(owner)
+                    && owner.starts_with(|c: char| c.is_ascii_uppercase())
+                    && owner != "Self"
+                {
                     if let Some(o) = self.generic_path(owner, method, r) {
                         return match o {
                             Some(m) => Outcome::Hit(m),
@@ -313,58 +535,85 @@ impl<'a> Ctx<'a> {
     }
 
     /// A Rust `use` path: the item its path walks to.
-    fn resolve_import(&self, r: &Ref<'_>, generic: &mut dyn FnMut(&str) -> Option<Match>) -> Option<Match> {
+    fn resolve_import(
+        &self,
+        r: &Ref<'_>,
+        generic: &mut dyn FnMut(&str) -> Option<Match>,
+    ) -> Option<Match> {
         let segs: Vec<String> = r.name.split("::").map(|s| s.trim().to_string()).collect();
-        if segs.len() < 2 {
-            // `crate`, `self`, a crate's name alone: the module, which no edge needs.
-            return None;
-        }
         let at = self.ref_offset(r).unwrap_or(0);
         let from = self.module_at(r.file, at);
-        match self.use_path_items(&segs, &from, &mut HashSet::new()) {
-            Some(items) => {
-                let items: Vec<SymId> = items.into_iter().filter(|&i| !is_associated_item(self.syms.get(i))).collect();
-                let best = self.prefer_file(&items, r.file).into_iter().next()?;
-                Some(Match {
+        let file_of = |m: &uses::Module| {
+            m.block
+                .is_none()
+                .then(|| self.syms.file_node(&m.file))
+                .flatten()
+                .map(|f| Match {
+                    target: f,
+                    strategy: "import-module",
+                    confidence: 0.95,
+                })
+        };
+        if segs.len() < 2 {
+            // Another project crate by its name: its library's root. (`crate`,
+            // `self` and `super` alone name this crate's own modules: no edge.)
+            if matches!(segs[0].as_str(), "crate" | "self" | "super") {
+                return None;
+            }
+            return match self.walk_modules(&segs, &from, 0) {
+                Walk::Module(m) if m.root => file_of(&m),
+                _ => None,
+            };
+        }
+        let items = self.use_path_items(&segs, &from, &mut HashSet::new());
+        if let Some(items) = &items {
+            let items: Vec<SymId> = items
+                .iter()
+                .copied()
+                .filter(|&i| !is_associated_item(self.syms.get(i)))
+                .collect();
+            if let Some(&best) = self.prefer_file(&items, r.file).first() {
+                return Some(Match {
                     target: best,
                     strategy: "import-binding",
                     confidence: 0.95,
-                })
-            }
-            None => {
-                // A module the path names, or one the project can't walk to.
-                if let Walk::Module(m) = self.walk_modules(&segs, &from, 0) {
-                    if m.block.is_none() {
-                        if let Some(f) = self.syms.file_node(&m.file) {
-                            return Some(Match {
-                                target: f,
-                                strategy: "import-module",
-                                confidence: 0.95,
-                            });
-                        }
-                    }
-                    return None;
-                }
-                if matches!(self.walk_modules(&segs[..segs.len() - 1], &from, 0), Walk::Outside) {
-                    return None;
-                }
-                let m = generic(r.name)?;
-                let t = self.syms.get(m.target);
-                (!is_associated_item(t) && t.kind != NodeKind::File).then_some(m)
+                });
             }
         }
+        // A module the path names: its file.
+        match self.walk_modules(&segs, &from, 0) {
+            Walk::Module(m) => return file_of(&m),
+            Walk::Outside => return None,
+            Walk::Unknown => {}
+        }
+        // A path the project's modules lead out of, or name no item of.
+        if items.is_some()
+            || matches!(
+                self.walk_modules(&segs[..segs.len() - 1], &from, 0),
+                Walk::Outside
+            )
+        {
+            return None;
+        }
+        let m = generic(r.name)?;
+        let t = self.syms.get(m.target);
+        (!is_associated_item(t) && t.kind != NodeKind::File).then_some(m)
     }
 
     /// A bare Rust name: the candidate in scope where it is written.
     fn bare(&self, r: &Ref<'_>) -> Option<Match> {
         let line = self.line(r.file, r.line).unwrap_or_default();
-        let shape = if r.kind == ReferenceKind::Calls { call_shape(&line, r.column as usize, r.name) } else { Shape::Unknown };
+        let shape = if r.kind == ReferenceKind::Calls {
+            call_shape(&line, r.column as usize, r.name)
+        } else {
+            Shape::Unknown
+        };
         let from = self.syms.get(r.from);
         let candidates: Vec<SymId> = self
             .rust_named(r.name)
             .filter(|&i| {
                 let s = self.syms.get(i);
-                kind_accepts(r.kind, s.kind)
+                accepts(r.kind, s.kind)
                     && i != r.from
                     && self.syms.visible_from(i, r.from)
                     && !matches!(s.kind, NodeKind::Field | NodeKind::Property)
@@ -394,7 +643,29 @@ impl<'a> Ctx<'a> {
         };
         let best = candidates.iter().copied().max_by_key(|&i| rank(i))?;
         let s = self.syms.get(best);
-        let strategy = if s.file == r.file { "same-file" } else if uses.as_ref().is_some_and(|u| u.contains(&best)) { "import" } else { "exact-match" };
+        // A method on a receiver whose type wasn't read: only a name one type alone has.
+        if matches!(shape, Shape::Chained(_)) && s.kind == NodeKind::Method {
+            let owners: HashSet<&str> = candidates
+                .iter()
+                .filter(|&&i| self.syms.get(i).kind == NodeKind::Method)
+                .filter_map(|&i| self.syms.get(i).owner())
+                .collect();
+            if owners.len() != 1 {
+                return None;
+            }
+            return Some(Match {
+                target: best,
+                strategy: "name-match-member",
+                confidence: 0.5,
+            });
+        }
+        let strategy = if s.file == r.file {
+            "same-file"
+        } else if uses.as_ref().is_some_and(|u| u.contains(&best)) {
+            "import"
+        } else {
+            "exact-match"
+        };
         Some(Match {
             target: best,
             strategy,
@@ -411,12 +682,16 @@ impl<'a> Ctx<'a> {
         if self.is_trait_impl_method(cand) {
             return true;
         }
-        if c.kind == NodeKind::Method && self.typed.borrow().contains(&(r.from, r.line, r.column)) {
-            if self.trait_of(cand).is_some_and(|t| self.syms.get(t).visibility != Some(Visibility::Private)) {
-                return true;
-            }
+        if c.kind == NodeKind::Method
+            && self.typed.borrow().contains(&(r.from, r.line, r.column))
+            && self
+                .trait_of(cand)
+                .is_some_and(|t| self.syms.get(t).visibility != Some(Visibility::Private))
+        {
+            return true;
         }
-        r.file.starts_with(&format!("{}/", uses::module_dir(&c.file)))
+        r.file
+            .starts_with(&format!("{}/", uses::module_dir(&c.file)))
     }
 
     /// A Rust path — `crate::util::take`, `util::take`, `Type::assoc`, `mode::Mode` — by what it walks to.
@@ -429,10 +704,16 @@ impl<'a> Ctx<'a> {
         let head = &segs[..segs.len() - 1];
         let at = self.ref_offset(r).unwrap_or(0);
         // A module path: every segment before the item a module (lower-case, or `crate`/`self`/`super`).
-        if head.iter().all(|s| s.starts_with(|c: char| c.is_ascii_lowercase() || c == '_')) {
+        if head
+            .iter()
+            .all(|s| s.starts_with(|c: char| c.is_ascii_lowercase() || c == '_'))
+        {
             let mut path: Vec<String> = head.to_vec();
             // The path's head as a `use` binds it.
-            if let Some(bound) = self.use_path(&head[0], r.file, Some(at)).filter(|b| !b.is_empty()) {
+            if let Some(bound) = self
+                .use_path(&head[0], r.file, Some(at))
+                .filter(|b| !b.is_empty())
+            {
                 if !matches!(head[0].as_str(), "crate" | "self" | "super") {
                     path = bound;
                     path.extend(head[1..].iter().cloned());
@@ -442,17 +723,30 @@ impl<'a> Ctx<'a> {
             match self.walk_modules(&path, &from, 0) {
                 Walk::Outside => return Outcome::None,
                 Walk::Unknown => {
-                    if head.len() == 1 && self.graph().dependencies.contains(&head[0]) && !self.graph().project.contains(&head[0]) {
+                    if head.len() == 1
+                        && self.graph().dependencies.contains(&head[0])
+                        && !self.graph().project.contains(&head[0])
+                    {
                         return Outcome::None;
                     }
                     return Outcome::Pass;
                 }
                 Walk::Module(m) => {
-                    let items = self.module_items(&m, &last, &mut HashSet::new(), !self.module_within(&from, &m));
-                    let Some(items) = items else { return Outcome::Pass };
+                    let items = self.module_items(
+                        &m,
+                        &last,
+                        &mut HashSet::new(),
+                        !self.module_within(&from, &m),
+                    );
+                    let Some(items) = items else {
+                        return Outcome::Pass;
+                    };
                     let ok: Vec<SymId> = items
                         .into_iter()
-                        .filter(|&i| kind_accepts(r.kind, self.syms.get(i).kind) && !is_associated_item(self.syms.get(i)))
+                        .filter(|&i| {
+                            accepts(r.kind, self.syms.get(i).kind)
+                                && !is_associated_item(self.syms.get(i))
+                        })
                         .collect();
                     return match self.prefer_file(&ok, r.file).first() {
                         Some(&t) => Outcome::Hit(Match {
@@ -478,11 +772,47 @@ impl<'a> Ctx<'a> {
                 .into_iter()
                 .filter(|&m| self.path_call_reachable(m, r) && self.foreign_impl_callable(m, r))
                 .collect();
+            if impls.is_empty() {
+                // A trait's path (`W::flush(s)` under `use std::io::Write as W`): the project's impls of it.
+                let of_trait: Vec<SymId> = self
+                    .rust_named(&last)
+                    .filter(|&m| {
+                        self.syms.get(m).kind == NodeKind::Method
+                            && self
+                                .trait_impl_header(m)
+                                .is_some_and(|h| h.trait_ == lookup.name)
+                            && self.path_call_reachable(m, r)
+                    })
+                    .collect();
+                let fit: Vec<SymId> = if of_trait.len() > 1 {
+                    of_trait
+                        .iter()
+                        .copied()
+                        .filter(|&m| {
+                            self.trait_impl_header(m)
+                                .is_some_and(|h| self.first_arg_is(&h.self_, r))
+                        })
+                        .collect()
+                } else {
+                    of_trait
+                };
+                return match fit.as_slice() {
+                    [one] => Outcome::Hit(instance(*one, 0.85)),
+                    _ => Outcome::None,
+                };
+            }
             return match impls.as_slice() {
                 [one] => Outcome::Hit(qualified(*one, 0.85)),
                 [] => Outcome::None,
                 many => {
-                    let traits: HashSet<String> = many.iter().map(|&m| self.trait_impl_header(m).map(|h| h.trait_).unwrap_or_default()).collect();
+                    let traits: HashSet<String> = many
+                        .iter()
+                        .map(|&m| {
+                            self.trait_impl_header(m)
+                                .map(|h| h.trait_)
+                                .unwrap_or_default()
+                        })
+                        .collect();
                     if traits.len() == 1 {
                         Outcome::Hit(qualified(self.prefer_file(many, r.file)[0], 0.8))
                     } else {
@@ -500,7 +830,7 @@ impl<'a> Ctx<'a> {
             let q = format!("{}::{last}", ts.qualified_name);
             for i in self.rust_named(&last) {
                 let s = self.syms.get(i);
-                if s.qualified_name == q && kind_accepts(r.kind, s.kind) {
+                if s.qualified_name == q && accepts(r.kind, s.kind) {
                     // A variant is its enum's file's; a method may be in another file's impl.
                     if s.kind == NodeKind::EnumMember && s.file != ts.file {
                         continue;
@@ -513,11 +843,26 @@ impl<'a> Ctx<'a> {
             // A trait's methods through its path (`Trait::method(x)`), or an alias's target type.
             return Outcome::Pass;
         }
-        let inherent: Vec<SymId> = found.iter().copied().filter(|&m| !self.is_trait_impl_method(m)).collect();
+        let inherent: Vec<SymId> = found
+            .iter()
+            .copied()
+            .filter(|&m| !self.is_trait_impl_method(m))
+            .collect();
         let pool = if inherent.is_empty() { found } else { inherent };
-        let type_files: HashSet<String> = lookup.nodes.iter().map(|&n| self.syms.get(n).file.clone()).collect();
+        let type_files: HashSet<String> = lookup
+            .nodes
+            .iter()
+            .map(|&n| self.syms.get(n).file.clone())
+            .collect();
         match self.pick_method(&pool, &type_files, r, 0.9) {
-            Hit::Found(m) => Outcome::Hit(qualified(m.target, if self.syms.get(m.target).file == r.file { 0.9 } else { 0.8 })),
+            Hit::Found(m) => Outcome::Hit(qualified(
+                m.target,
+                if self.syms.get(m.target).file == r.file {
+                    0.9
+                } else {
+                    0.8
+                },
+            )),
             _ => Outcome::None,
         }
     }
@@ -536,9 +881,18 @@ impl<'a> Ctx<'a> {
         if !ty.starts_with(|c: char| c.is_ascii_uppercase()) || ty == "Self" {
             return true;
         }
-        let path: Vec<String> = segments[..segments.len() - 2].iter().map(|s| s.to_string()).collect();
-        let Some(outside) = self.outside_path_type(ty, &path, r) else { return true };
-        let imp = if t.kind == NodeKind::Method { self.trait_impl_header(target) } else { None };
+        let path: Vec<String> = segments[..segments.len() - 2]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let Some(outside) = self.outside_path_type(ty, &path, r) else {
+            return true;
+        };
+        let imp = if t.kind == NodeKind::Method {
+            self.trait_impl_header(target)
+        } else {
+            None
+        };
         let Some(imp) = imp else { return false };
         if imp.trait_ == outside {
             return true;
@@ -548,9 +902,15 @@ impl<'a> Ctx<'a> {
         }
         let written = impls::strip_amp(&imp.self_text);
         let head = types::path_head(written);
-        let (segs, name) = head.map(|h| (h.0, h.1)).unwrap_or((Vec::new(), imp.self_.clone()));
+        let (segs, name) = head
+            .map(|h| (h.0, h.1))
+            .unwrap_or((Vec::new(), imp.self_.clone()));
         let lookup = self.type_lookup(&name, &segs, &t.file, Some(self.node_offset(target)));
-        lookup.outside || !lookup.nodes.iter().any(|&n| OWNER_KINDS.contains(&self.syms.get(n).kind))
+        lookup.outside
+            || !lookup
+                .nodes
+                .iter()
+                .any(|&n| OWNER_KINDS.contains(&self.syms.get(n).kind))
     }
 
     fn outside_path_type(&self, ty: &str, path: &[String], r: &Ref<'_>) -> Option<String> {
@@ -559,7 +919,10 @@ impl<'a> Ctx<'a> {
             let bound = self.use_path(ty, r.file, at).filter(|b| b.len() >= 2)?;
             (bound[0].clone(), bound.last().unwrap().clone())
         } else {
-            let root = self.use_path(&path[0], r.file, at).and_then(|p| p.first().cloned()).unwrap_or_else(|| path[0].clone());
+            let root = self
+                .use_path(&path[0], r.file, at)
+                .and_then(|p| p.first().cloned())
+                .unwrap_or_else(|| path[0].clone());
             (root, ty.to_string())
         };
         self.graph().is_outside_crate(&root, r.file).then_some(real)
@@ -575,7 +938,9 @@ impl<'a> Ctx<'a> {
         if !STD_TYPES.contains(&owner) || self.is_project_named(owner, DECLARED_TYPE_KINDS) {
             return true;
         }
-        let Some(imp) = self.trait_impl_header(target) else { return true };
+        let Some(imp) = self.trait_impl_header(target) else {
+            return true;
+        };
         if imp.self_ != owner || imp.trait_.is_empty() {
             return true;
         }
@@ -585,7 +950,11 @@ impl<'a> Ctx<'a> {
         if self.is_project_named(&imp.trait_, &[NodeKind::Trait]) {
             return self.trait_in_scope(&imp.trait_, r, target);
         }
-        match imp.trait_args.iter().find(|a| self.is_project_named(a, DECLARED_TYPE_KINDS)) {
+        match imp
+            .trait_args
+            .iter()
+            .find(|a| self.is_project_named(a, DECLARED_TYPE_KINDS))
+        {
             None => true,
             Some(local) => self.first_arg_is(local, r),
         }
@@ -598,14 +967,32 @@ impl<'a> Ctx<'a> {
         let caller = self.syms.get(r.from);
         let (owner, _) = caller.qualified_name.rsplit_once("::")?;
         let qn = format!("{owner}::{method}");
-        let mut owned: Vec<SymId> = self.by_qualified(&qn).into_iter().filter(|&i| self.syms.get(i).kind == NodeKind::Method).collect();
+        let mut owned: Vec<SymId> = self
+            .by_qualified(&qn)
+            .into_iter()
+            .filter(|&i| self.syms.get(i).kind == NodeKind::Method)
+            .collect();
         let owners: Vec<SymId> = self
             .by_qualified(owner)
             .into_iter()
-            .filter(|&i| matches!(self.syms.get(i).kind, NodeKind::Struct | NodeKind::Enum | NodeKind::Union | NodeKind::Trait | NodeKind::Class))
+            .filter(|&i| {
+                matches!(
+                    self.syms.get(i).kind,
+                    NodeKind::Struct
+                        | NodeKind::Enum
+                        | NodeKind::Union
+                        | NodeKind::Trait
+                        | NodeKind::Class
+                )
+            })
             .collect();
         if owners.len() > 1 {
-            if owners.iter().filter(|&&o| self.syms.get(o).file == caller.file).count() != 1 {
+            if owners
+                .iter()
+                .filter(|&&o| self.syms.get(o).file == caller.file)
+                .count()
+                != 1
+            {
                 return None;
             }
             owned.retain(|&i| self.syms.get(i).file == caller.file);
@@ -619,7 +1006,8 @@ impl<'a> Ctx<'a> {
                     let x = x.trim_start();
                     if let Some(y) = x.strip_prefix('.') {
                         let y = y.trim_start();
-                        if y.starts_with(method) && y[method.len()..].trim_start().starts_with(')') {
+                        if y.starts_with(method) && y[method.len()..].trim_start().starts_with(')')
+                        {
                             return None;
                         }
                     }
@@ -628,7 +1016,11 @@ impl<'a> Ctx<'a> {
         }
         // In a trait impl, `fn wake(self) { self.wake() }` hands the call on to the type's own `wake`.
         if caller.name == method && self.is_trait_impl_method(r.from) {
-            let inherent: Vec<SymId> = owned.iter().copied().filter(|&n| !self.is_trait_impl_method(n)).collect();
+            let inherent: Vec<SymId> = owned
+                .iter()
+                .copied()
+                .filter(|&n| !self.is_trait_impl_method(n))
+                .collect();
             if !inherent.is_empty() {
                 owned = inherent;
             } else {
@@ -656,7 +1048,11 @@ impl<'a> Ctx<'a> {
         if owned.len() <= 1 {
             return owned.first().copied();
         }
-        let inherent: Vec<SymId> = owned.iter().copied().filter(|&n| !self.is_trait_impl_method(n)).collect();
+        let inherent: Vec<SymId> = owned
+            .iter()
+            .copied()
+            .filter(|&n| !self.is_trait_impl_method(n))
+            .collect();
         if !inherent.is_empty() {
             return (inherent.len() == 1).then(|| inherent[0]);
         }
@@ -673,8 +1069,19 @@ impl<'a> Ctx<'a> {
     }
 
     /// Rust's method lookup on a value reached through a std wrapper.
-    fn through_wrapper(&self, wrapper: &str, name: &str, own: &[SymId], inner: Option<&str>, r: &Ref<'_>) -> Through {
-        let through: Vec<SymId> = own.iter().copied().filter(|&n| self.self_wrapper(n) == Some(wrapper)).collect();
+    fn through_wrapper(
+        &self,
+        wrapper: &str,
+        name: &str,
+        own: &[SymId],
+        inner: Option<&str>,
+        r: &Ref<'_>,
+    ) -> Through {
+        let through: Vec<SymId> = own
+            .iter()
+            .copied()
+            .filter(|&n| self.self_wrapper(n) == Some(wrapper))
+            .collect();
         if !through.is_empty() {
             return Through::Candidates(through);
         }
@@ -702,7 +1109,11 @@ impl<'a> Ctx<'a> {
         let target = match self.through_wrapper("Pin", name, &own, inner.as_deref(), r) {
             Through::Target(t) => t,
             Through::Candidates(c) => {
-                let inherent: Vec<SymId> = c.iter().copied().filter(|&n| !self.is_trait_impl_method(n)).collect();
+                let inherent: Vec<SymId> = c
+                    .iter()
+                    .copied()
+                    .filter(|&n| !self.is_trait_impl_method(n))
+                    .collect();
                 let pool = if inherent.is_empty() { c } else { inherent };
                 self.prefer_file(&pool, r.file).first().copied()
             }
@@ -713,8 +1124,15 @@ impl<'a> Ctx<'a> {
     /// What a `Pin<…>` type pins — `Pin<&mut R>` → `R`, `Pin<&mut Self>` → the impl's type.
     fn pinned_pointee(&self, ty: &str, r: &Ref<'_>) -> Option<String> {
         let t = impls::strip_amp(ty);
-        let t = ["std::pin::", "core::pin::"].iter().find_map(|p| t.strip_prefix(p)).unwrap_or(t);
-        let t = t.strip_prefix("Pin")?.trim_start().strip_prefix('<')?.trim_start();
+        let t = ["std::pin::", "core::pin::"]
+            .iter()
+            .find_map(|p| t.strip_prefix(p))
+            .unwrap_or(t);
+        let t = t
+            .strip_prefix("Pin")?
+            .trim_start()
+            .strip_prefix('<')?
+            .trim_start();
         let mut t = impls::strip_amp(t);
         for p in ["std::boxed::Box<", "alloc::boxed::Box<", "Box<"] {
             if let Some(r) = t.strip_prefix(p) {
@@ -722,8 +1140,15 @@ impl<'a> Ctx<'a> {
                 break;
             }
         }
-        let t = t.strip_prefix("dyn ").or_else(|| t.strip_prefix("impl ")).unwrap_or(t).trim_start();
-        let path: String = t.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == ':').collect();
+        let t = t
+            .strip_prefix("dyn ")
+            .or_else(|| t.strip_prefix("impl "))
+            .unwrap_or(t)
+            .trim_start();
+        let path: String = t
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == ':')
+            .collect();
         let name = path.rsplit("::").next()?.trim().to_string();
         if name.is_empty() {
             return None;
@@ -736,12 +1161,15 @@ impl<'a> Ctx<'a> {
 
     /// Whether `name` is a type parameter the `fn` or the `impl` around `r` declares.
     fn is_type_param(&self, name: &str, r: &Ref<'_>) -> bool {
-        let Some(sc) = self.scopes(r.file) else { return false };
-        let at = sc.offset(r.line, r.column);
-        let declares = |generics: &str| {
-            split_generic_names(generics).iter().any(|g| g == name)
+        let Some(sc) = self.scopes(r.file) else {
+            return false;
         };
-        sc.fn_at(at).is_some_and(|f| declares(&f.generics)) || sc.impl_at(at).is_some_and(|b| b.kind == scopes::BlockKind::Impl && declares(&b.generics))
+        let at = sc.offset(r.line, r.column);
+        let declares = |generics: &str| split_generic_names(generics).iter().any(|g| g == name);
+        sc.fn_at(at).is_some_and(|f| declares(&f.generics))
+            || sc
+                .impl_at(at)
+                .is_some_and(|b| b.kind == scopes::BlockKind::Impl && declares(&b.generics))
     }
 
     /// The type a Rust local or parameter is written with, as its binding in scope writes it.
@@ -757,18 +1185,26 @@ impl<'a> Ctx<'a> {
     /// A call on what `.as_mut()` or `.as_ref()` hands back.
     fn as_mut_chain_call(&self, r: &Ref<'_>) -> Option<Hit3> {
         let line = self.line(r.file, r.line)?;
-        if !line.contains(".as_mut()") && !line.contains(".as_ref()") && !collapse(&line).contains(".as_mut()") && !collapse(&line).contains(".as_ref()") {
+        if !line.contains(".as_mut()")
+            && !line.contains(".as_ref()")
+            && !collapse(&line).contains(".as_mut()")
+            && !collapse(&line).contains(".as_ref()")
+        {
             return None;
         }
         let text = collapse(line.get(r.column as usize..)?);
         // `base[.field].as_mut()[?].name(` or `::<`
-        let (head, rest) = text.split_once(".as_mut()").or_else(|| text.split_once(".as_ref()"))?;
+        let (head, rest) = text
+            .split_once(".as_mut()")
+            .or_else(|| text.split_once(".as_ref()"))?;
         let (tried, rest) = match rest.strip_prefix('?') {
             Some(r2) => (true, r2),
             None => (false, rest),
         };
         let rest = rest.strip_prefix('.')?;
-        if !rest.starts_with(r.name) || !(rest[r.name.len()..].starts_with('(') || rest[r.name.len()..].starts_with("::<")) {
+        if !rest.starts_with(r.name)
+            || !(rest[r.name.len()..].starts_with('(') || rest[r.name.len()..].starts_with("::<"))
+        {
             return None;
         }
         let (base, field) = match head.split_once('.') {
@@ -781,7 +1217,8 @@ impl<'a> Ctx<'a> {
         let caller = self.syms.get(r.from);
         let Some(field) = field else {
             if base == "self" {
-                return (self.self_wrapper(r.from) == Some("Pin") && !tried).then(|| Hit3::from(self.self_call(r.name, r)));
+                return (self.self_wrapper(r.from) == Some("Pin") && !tried)
+                    .then(|| Hit3::from(self.self_call(r.name, r)));
             }
             let declared = self.declared_type_text(base, r)?;
             return self.lent_call(&declared, r.name, r, tried);
@@ -792,7 +1229,11 @@ impl<'a> Ctx<'a> {
         }
         let owner = caller.owner().and_then(|o| o.rsplit("::").next())?;
         let (ty, pinned) = self.field_declaration(owner, field, r)?;
-        let ty = if projected && pinned { format!("Pin<&mut {ty}>") } else { ty };
+        let ty = if projected && pinned {
+            format!("Pin<&mut {ty}>")
+        } else {
+            ty
+        };
         self.lent_call(&ty, r.name, r, tried)
     }
 
@@ -800,16 +1241,32 @@ impl<'a> Ctx<'a> {
     fn lent_call(&self, ty: &str, name: &str, r: &Ref<'_>, tried: bool) -> Option<Hit3> {
         let (outer, args, text) = type_head(ty)?;
         if outer == "Pin" && !self.is_project_named("Pin", DECLARED_TYPE_KINDS) {
-            return if tried { None } else { Some(Hit3::from(self.pinned_call_on(self.pinned_pointee(&text, r), name, r))) };
+            return if tried {
+                None
+            } else {
+                Some(Hit3::from(self.pinned_call_on(
+                    self.pinned_pointee(&text, r),
+                    name,
+                    r,
+                )))
+            };
         }
         if self.is_project_named(&outer, DECLARED_TYPE_KINDS) {
             return None;
         }
         if ["Box", "NonNull", "Rc", "Arc", "Cow"].contains(&outer.as_str()) {
-            return if tried { None } else { self.call_on_type(&type_text_at(&args), name, r) };
+            return if tried {
+                None
+            } else {
+                self.call_on_type(&type_text_at(&args), name, r)
+            };
         }
         if outer == "Option" || outer == "Result" {
-            return if tried { self.call_on_type(&type_text_at(&args), name, r) } else { Some(Hit3::Nothing) };
+            return if tried {
+                self.call_on_type(&type_text_at(&args), name, r)
+            } else {
+                Some(Hit3::Nothing)
+            };
         }
         if STD_TYPES.contains(&outer.as_str()) || self.is_type_param(&outer, r) {
             return Some(Hit3::Nothing);
@@ -821,14 +1278,28 @@ impl<'a> Ctx<'a> {
     fn call_on_type(&self, ty: &str, name: &str, r: &Ref<'_>) -> Option<Hit3> {
         let (outer, args, text) = type_head(ty)?;
         if outer == "Pin" && !self.is_project_named("Pin", DECLARED_TYPE_KINDS) {
-            return Some(Hit3::from(self.pinned_call_on(self.pinned_pointee(&text, r), name, r)));
+            return Some(Hit3::from(self.pinned_call_on(
+                self.pinned_pointee(&text, r),
+                name,
+                r,
+            )));
         }
-        let outer = if outer == "Self" { self.self_type_at(r)?.ty } else { outer };
+        let outer = if outer == "Self" {
+            self.self_type_at(r)?.ty
+        } else {
+            outer
+        };
         if self.is_type_param(&outer, r) {
             return Some(Hit3::Nothing);
         }
-        if ["Box", "NonNull", "Rc", "Arc", "Cow"].contains(&outer.as_str()) && !self.is_project_named(&outer, DECLARED_TYPE_KINDS) {
-            return if wrapper_own_method(&outer, name) { Some(Hit3::Nothing) } else { self.call_on_type(&type_text_at(&args), name, r) };
+        if ["Box", "NonNull", "Rc", "Arc", "Cow"].contains(&outer.as_str())
+            && !self.is_project_named(&outer, DECLARED_TYPE_KINDS)
+        {
+            return if wrapper_own_method(&outer, name) {
+                Some(Hit3::Nothing)
+            } else {
+                self.call_on_type(&type_text_at(&args), name, r)
+            };
         }
         let st = impls::SelfType {
             ty: outer.clone(),
@@ -851,8 +1322,16 @@ impl<'a> Ctx<'a> {
         if methods.is_empty() {
             return None;
         }
-        let inherent: Vec<SymId> = methods.iter().copied().filter(|&m| !self.is_trait_impl_method(m)).collect();
-        let pool = if inherent.is_empty() { methods } else { inherent };
+        let inherent: Vec<SymId> = methods
+            .iter()
+            .copied()
+            .filter(|&m| !self.is_trait_impl_method(m))
+            .collect();
+        let pool = if inherent.is_empty() {
+            methods
+        } else {
+            inherent
+        };
         match self.pick_method(&pool, &HashSet::new(), r, 0.85) {
             Hit::Found(m) => Some(m),
             _ => None,
@@ -861,28 +1340,43 @@ impl<'a> Ctx<'a> {
 
     /// Whether a Rust local is bound by pin-project's `let me = self.project()`.
     fn projects_self(&self, name: &str, r: &Ref<'_>) -> bool {
-        let Some(sc) = self.scopes(r.file) else { return false };
-        let Some((b, _)) = sc.binding_at(name, sc.offset(r.line, r.column)) else { return false };
+        let Some(sc) = self.scopes(r.file) else {
+            return false;
+        };
+        let Some((b, _)) = sc.binding_at(name, sc.offset(r.line, r.column)) else {
+            return false;
+        };
         let init = collapse(b.init.as_deref().unwrap_or(""));
         init == "self.project()" || init == "self.as_mut().project()"
     }
 
     /// How a field of the Rust type `owner` is declared: its type as written, and whether pin-project pins it.
     fn field_declaration(&self, owner: &str, field: &str, r: &Ref<'_>) -> Option<(String, bool)> {
-        let decls: Vec<SymId> = self.rust_named(owner).filter(|&n| matches!(self.syms.get(n).kind, NodeKind::Struct | NodeKind::Union)).collect();
+        let decls: Vec<SymId> = self
+            .rust_named(owner)
+            .filter(|&n| matches!(self.syms.get(n).kind, NodeKind::Struct | NodeKind::Union))
+            .collect();
         let mut spans: Vec<Vec<String>> = Vec::new();
         for d in self.prefer_file(&decls, r.file) {
             let s = self.syms.get(d);
             if let Some(src) = self.source(&s.file) {
-                spans.push(src.lines().skip(s.start_line as usize - 1).take((s.end_line - s.start_line + 1) as usize).map(str::to_string).collect());
+                spans.push(
+                    src.lines_in(s.start_line as usize - 1, s.end_line as usize)
+                        .map(str::to_string)
+                        .collect(),
+                );
             }
         }
         if spans.is_empty() {
             let src = self.source(r.file)?;
-            let lines: Vec<&str> = src.lines().collect();
+            let lines: Vec<&str> = src.lines_in(0, usize::MAX).collect();
             let at = lines.iter().position(|l| {
                 let l = l.split("//").next().unwrap_or("");
-                uses::find_word(l, "struct").is_some_and(|i| l[i + 6..].trim_start().starts_with(owner) && !l[i + 6..].trim_start()[owner.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_'))
+                uses::find_word(l, "struct").is_some_and(|i| {
+                    l[i + 6..].trim_start().starts_with(owner)
+                        && !l[i + 6..].trim_start()[owner.len()..]
+                            .starts_with(|c: char| c.is_alphanumeric() || c == '_')
+                })
             })?;
             let mut depth = 0;
             let mut end = at;
@@ -901,13 +1395,21 @@ impl<'a> Ctx<'a> {
                 }
                 end += 1;
             }
-            spans.push(lines[at..=end.min(lines.len() - 1)].iter().map(|s| s.to_string()).collect());
+            spans.push(
+                lines[at..=end.min(lines.len() - 1)]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+            );
         }
         for span in spans {
             for (i, raw) in span.iter().enumerate() {
                 let line = raw.split("//").next().unwrap_or("");
-                let Some(at) = field_decl_at(line, field) else { continue };
-                let pinned = line[..at].contains("#[pin]") || (i > 0 && span[i - 1].trim() == "#[pin]");
+                let Some(at) = field_decl_at(line, field) else {
+                    continue;
+                };
+                let pinned =
+                    line[..at].contains("#[pin]") || (i > 0 && span[i - 1].trim() == "#[pin]");
                 let after = line[at + field.len()..].trim_start().strip_prefix(':')?;
                 return Some((type_text_at(after), pinned));
             }
@@ -935,15 +1437,28 @@ impl<'a> Ctx<'a> {
     fn self_field_call_fallback(&self, field: &str, method: &str, r: &Ref<'_>) -> Option<Match> {
         let caller = self.syms.get(r.from);
         let owner = caller.owner()?.rsplit("::").next()?;
-        let decls: Vec<SymId> = self.rust_named(owner).filter(|&n| matches!(self.syms.get(n).kind, NodeKind::Struct | NodeKind::Union | NodeKind::Class)).collect();
+        let decls: Vec<SymId> = self
+            .rust_named(owner)
+            .filter(|&n| {
+                matches!(
+                    self.syms.get(n).kind,
+                    NodeKind::Struct | NodeKind::Union | NodeKind::Class
+                )
+            })
+            .collect();
         for d in self.prefer_file(&decls, r.file) {
             let s = self.syms.get(d);
             let src = self.source(&s.file)?;
-            for raw in src.lines().skip(s.start_line as usize - 1).take((s.end_line - s.start_line + 1) as usize) {
+            for raw in src.lines_in(s.start_line as usize - 1, s.end_line as usize) {
                 let line = raw.split("//").next().unwrap_or("");
-                let Some(at) = field_decl_at(line, field) else { continue };
+                let Some(at) = field_decl_at(line, field) else {
+                    continue;
+                };
                 let after = line[at + field.len()..].trim_start().strip_prefix(':')?;
-                let ty_text: String = after.chars().take_while(|c| !matches!(c, ',' | '{' | '}')).collect();
+                let ty_text: String = after
+                    .chars()
+                    .take_while(|c| !matches!(c, ',' | '{' | '}'))
+                    .collect();
                 let ty = field_type_name(&ty_text)?;
                 return self.method_on_type(&ty, method, r);
             }
@@ -959,7 +1474,9 @@ impl<'a> Ctx<'a> {
         if ambiguous {
             return Some(Hit::Unread);
         }
-        let Some(written) = self.binding_type(b, &sc, r, 0) else { return Some(Hit::Unread) };
+        let Some(written) = self.binding_type(b, &sc, r, 0) else {
+            return Some(Hit::Unread);
+        };
         let h = self.typed_method_call(&self.read_type(&written, r), method, r, 0);
         if let Hit::Found(_) = h {
             self.typed.borrow_mut().insert((r.from, r.line, r.column));
@@ -969,9 +1486,15 @@ impl<'a> Ctx<'a> {
 
     /// A call on a field chain, a struct literal or a receiver chain kept by extraction, as written.
     fn written_receiver_call(&self, r: &Ref<'_>, chain: Option<&[String]>) -> Outcome {
-        let Some(sc) = self.scopes(r.file) else { return Outcome::Pass };
+        let Some(sc) = self.scopes(r.file) else {
+            return Outcome::Pass;
+        };
         let start = sc.offset(r.line, r.column);
-        let line_end = sc.line_starts.get(r.line as usize).copied().unwrap_or(sc.code.len());
+        let line_end = sc
+            .line_starts
+            .get(r.line as usize)
+            .copied()
+            .unwrap_or(sc.code.len());
         if start >= line_end {
             return Outcome::Pass;
         }
@@ -979,10 +1502,21 @@ impl<'a> Ctx<'a> {
             Some(c) => chained_receiver(&sc, start, c, r.name),
             None => written_call_receiver(&sc, start, r.name),
         };
-        let Some(receiver) = receiver else { return Outcome::Pass };
-        let Some(written) = self.value_type(&receiver, start, &sc, r, 0) else { return Outcome::Pass };
+        let Some(receiver) = receiver else {
+            return Outcome::Pass;
+        };
+        let Some(written) = self.value_type(&receiver, start, &sc, r, 0) else {
+            return Outcome::Pass;
+        };
         let read = self.read_type(&written, r);
-        if let Read::Named { name, path, written: w, wrappers, .. } = &read {
+        if let Read::Named {
+            name,
+            path,
+            written: w,
+            wrappers,
+            ..
+        } = &read
+        {
             if !wrappers.iter().any(|x| wrapper_own_method(x, r.name)) {
                 let lookup = self.type_lookup(name, path, &w.file, Some(w.at));
                 if lookup.undeclared && self.methods_named(&lookup.name, r.name).is_empty() {
@@ -1004,15 +1538,35 @@ impl<'a> Ctx<'a> {
 
     /// The method a project trait that a type derives provides.
     fn derived_trait_method(&self, read: &Read, method: &str, r: &Ref<'_>) -> Option<Match> {
-        let Read::Named { name, path, written, .. } = read else { return None };
+        let Read::Named {
+            name,
+            path,
+            written,
+            ..
+        } = read
+        else {
+            return None;
+        };
         let lookup = self.type_lookup(name, path, &written.file, Some(written.at));
-        let types: Vec<SymId> = if lookup.outside { Vec::new() } else { lookup.nodes.iter().copied().filter(|&n| OWNER_KINDS.contains(&self.syms.get(n).kind)).collect() };
+        let types: Vec<SymId> = if lookup.outside {
+            Vec::new()
+        } else {
+            lookup
+                .nodes
+                .iter()
+                .copied()
+                .filter(|&n| OWNER_KINDS.contains(&self.syms.get(n).kind))
+                .collect()
+        };
         if types.len() != 1 {
             return None;
         }
         let mut found = Vec::new();
         for d in self.derived_names(types[0]) {
-            let traits: Vec<SymId> = self.rust_named(&d).filter(|&n| self.syms.get(n).kind == NodeKind::Trait).collect();
+            let traits: Vec<SymId> = self
+                .rust_named(&d)
+                .filter(|&n| self.syms.get(n).kind == NodeKind::Trait)
+                .collect();
             for m in self.trait_methods(&traits, method, 0) {
                 if let Some(t) = self.trait_of(m) {
                     if self.has_body(m) && self.trait_in_scope(&self.syms.get(t).name, r, m) {
@@ -1028,14 +1582,25 @@ impl<'a> Ctx<'a> {
     /// The names a Rust type's `#[derive(…)]` attributes write.
     fn derived_names(&self, decl: SymId) -> Vec<String> {
         let s = self.syms.get(decl);
-        let Some(src) = self.source(&s.file) else { return Vec::new() };
-        let lines: Vec<&str> = src.lines().collect();
+        let Some(src) = self.source(&s.file) else {
+            return Vec::new();
+        };
+        let lines: Vec<&str> = src
+            .lines_in(
+                (s.start_line as usize).saturating_sub(64),
+                s.start_line as usize + 8,
+            )
+            .collect();
+        let base = (s.start_line as usize).saturating_sub(64);
         let mut names = Vec::new();
-        let mut i = s.start_line as usize;
+        let mut i = s.start_line as usize - base;
         // The node may start at its attributes; read up from the keyword's line too.
         let kw = (i.saturating_sub(1)..lines.len().min(i + 8)).find(|&k| {
             let l = lines[k];
-            ["struct", "enum", "union"].iter().any(|w| uses::find_word(l, w).is_some_and(|p| l[p + w.len()..].trim_start().starts_with(&s.name)))
+            ["struct", "enum", "union"].iter().any(|w| {
+                uses::find_word(l, w)
+                    .is_some_and(|p| l[p + w.len()..].trim_start().starts_with(&s.name))
+            })
         });
         let Some(kw) = kw else { return names };
         i = kw + 1;
@@ -1050,7 +1615,9 @@ impl<'a> Ctx<'a> {
             let mut rest = lines[k];
             while let Some(p) = uses::find_word(rest, "derive") {
                 let after = rest[p + 6..].trim_start();
-                let Some(inner) = after.strip_prefix('(') else { break };
+                let Some(inner) = after.strip_prefix('(') else {
+                    break;
+                };
                 let end = inner.find(')').unwrap_or(inner.len());
                 for part in inner[..end].split(',') {
                     let n = part.trim().rsplit("::").next().unwrap_or("").trim();
@@ -1074,7 +1641,10 @@ impl<'a> Ctx<'a> {
             let s = self.syms.get(n);
             self.syms.in_file(&s.file).iter().any(|&i| {
                 let x = self.syms.get(i);
-                x.kind == NodeKind::Trait && x.name == t && x.start_line <= s.start_line && x.end_line >= s.start_line
+                x.kind == NodeKind::Trait
+                    && x.name == t
+                    && x.start_line <= s.start_line
+                    && x.end_line >= s.start_line
             })
         };
         let pick = |owner: &str, trait_: bool| -> Option<SymId> {
@@ -1084,14 +1654,20 @@ impl<'a> Ctx<'a> {
                 .rust_named(name)
                 .filter(|&n| {
                     let s = self.syms.get(n);
-                    matches!(s.kind, NodeKind::Method | NodeKind::Function | NodeKind::EnumMember)
-                        && (s.qualified_name == q || s.qualified_name.ends_with(&qs))
+                    matches!(
+                        s.kind,
+                        NodeKind::Method | NodeKind::Function | NodeKind::EnumMember
+                    ) && (s.qualified_name == q || s.qualified_name.ends_with(&qs))
                         && (!trait_ || in_trait(n, owner))
                         && (trait_ || !outside || s.file == r.file)
                         && (st.trait_.is_none() || n != r.from)
                 })
                 .collect();
-            let inherent: Vec<SymId> = all.iter().copied().filter(|&n| !self.is_trait_impl_method(n)).collect();
+            let inherent: Vec<SymId> = all
+                .iter()
+                .copied()
+                .filter(|&n| !self.is_trait_impl_method(n))
+                .collect();
             let candidates = if !inherent.is_empty() {
                 inherent
             } else if all.len() == 1 {
@@ -1102,17 +1678,32 @@ impl<'a> Ctx<'a> {
             if candidates.is_empty() {
                 return None;
             }
-            if let Some(&own) = candidates.iter().find(|&&n| self.syms.get(n).file == r.file) {
+            if let Some(&own) = candidates
+                .iter()
+                .find(|&&n| self.syms.get(n).file == r.file)
+            {
                 return Some(own);
             }
-            candidates.iter().copied().max_by_key(|&c| types::proximity(r.file, &self.syms.get(c).file))
+            candidates
+                .iter()
+                .copied()
+                .max_by_key(|&c| types::proximity(r.file, &self.syms.get(c).file))
         };
         let delegates = self.syms.get(r.from).name == name;
         let target = pick(&st.ty, st.is_trait).or_else(|| match &st.trait_ {
             Some(t) if !outside && !delegates => pick(t, true),
             _ => None,
         });
-        Some(target.map(|t| qualified(t, if self.syms.get(t).file == r.file { 0.9 } else { 0.8 })))
+        Some(target.map(|t| {
+            qualified(
+                t,
+                if self.syms.get(t).file == r.file {
+                    0.9
+                } else {
+                    0.8
+                },
+            )
+        }))
     }
 
     /// A call through a generic type parameter: the method its bounds' traits declare.
@@ -1122,7 +1713,15 @@ impl<'a> Ctx<'a> {
         let bounds = self.generic_bounds(name, &written)?;
         let traits: Vec<String> = bounds
             .into_iter()
-            .filter(|b| !b.trim().starts_with(['\'', '?']) && !MARKER_TRAITS.contains(&types::path_head(b).map(|h| h.1).unwrap_or_default().as_str()))
+            .filter(|b| {
+                !b.trim().starts_with(['\'', '?'])
+                    && !MARKER_TRAITS.contains(
+                        &types::path_head(b)
+                            .map(|h| h.1)
+                            .unwrap_or_default()
+                            .as_str(),
+                    )
+            })
             .collect();
         if traits.is_empty() {
             return Some(None);
@@ -1208,7 +1807,10 @@ impl Shape {
                 if s.kind != NodeKind::Method {
                     return s.kind != NodeKind::Function;
                 }
-                !STD_METHODS.contains(&s.name.as_str()) || recv == "self" || recv == "Self" || (!recv.is_empty() && shares_receiver_word(recv, &s.qualified_name))
+                !STD_METHODS.contains(&s.name.as_str())
+                    || recv == "self"
+                    || recv == "Self"
+                    || (!recv.is_empty() && shares_receiver_word(recv, &s.qualified_name))
             }
         }
     }
@@ -1233,7 +1835,9 @@ fn call_shape(line: &str, col: usize, name: &str) -> Shape {
         }
         hit
     };
-    let Some(start) = at else { return Shape::Unknown };
+    let Some(start) = at else {
+        return Shape::Unknown;
+    };
     let before = line[..start].trim_end();
     if before.ends_with("::") {
         return Shape::Path;
@@ -1241,7 +1845,11 @@ fn call_shape(line: &str, col: usize, name: &str) -> Shape {
     if !before.ends_with('.') {
         return Shape::Bare;
     }
-    let recv = before.trim_end_matches('.').trim_end().trim_end_matches('?').trim_end();
+    let recv = before
+        .trim_end_matches('.')
+        .trim_end()
+        .trim_end_matches('?')
+        .trim_end();
     if is_tuple_receiver(recv) {
         return Shape::Chained("()".into());
     }
@@ -1319,9 +1927,15 @@ fn receiver_name(src: &str) -> String {
 }
 
 fn shares_receiver_word(receiver: &str, qualified_name: &str) -> bool {
-    let Some((owner, _)) = qualified_name.rsplit_once("::") else { return false };
+    let Some((owner, _)) = qualified_name.rsplit_once("::") else {
+        return false;
+    };
     let flat = |w: &str| -> String {
-        let s: String = w.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_lowercase();
+        let s: String = w
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .collect::<String>()
+            .to_lowercase();
         s.trim_end_matches(|c: char| c.is_ascii_digit()).to_string()
     };
     let last_recv = receiver.rsplit('.').next().unwrap_or(receiver);
@@ -1335,7 +1949,11 @@ fn shares_receiver_word(receiver: &str, qualified_name: &str) -> bool {
         let chars: Vec<char> = s.chars().collect();
         for (i, &c) in chars.iter().enumerate() {
             let boundary = !c.is_alphanumeric()
-                || (c.is_uppercase() && i > 0 && (chars[i - 1].is_lowercase() || (chars.get(i + 1).is_some_and(|n| n.is_lowercase()) && chars[i - 1].is_uppercase())));
+                || (c.is_uppercase()
+                    && i > 0
+                    && (chars[i - 1].is_lowercase()
+                        || (chars.get(i + 1).is_some_and(|n| n.is_lowercase())
+                            && chars[i - 1].is_uppercase())));
             if boundary && !cur.is_empty() {
                 out.push(std::mem::take(&mut cur));
             }
@@ -1348,8 +1966,14 @@ fn shares_receiver_word(receiver: &str, qualified_name: &str) -> bool {
         }
         out.into_iter().filter(|w| w.len() > 1).collect()
     };
-    let owner_words: HashSet<String> = words(owner).iter().map(|w| flat(w)).filter(|w| w.len() > 2).collect();
-    words(receiver).iter().any(|w| owner_words.contains(&flat(w)))
+    let owner_words: HashSet<String> = words(owner)
+        .iter()
+        .map(|w| flat(w))
+        .filter(|w| w.len() > 2)
+        .collect();
+    words(receiver)
+        .iter()
+        .any(|w| owner_words.contains(&flat(w)))
 }
 
 /// The type written at the start of `text`, up to what ends it at its own depth.
@@ -1376,7 +2000,12 @@ pub fn type_text_at(text: &str) -> String {
 /// A type by its last name, after `&`, `dyn`, `impl`: (outer, args, text).
 fn type_head(ty: &str) -> Option<(String, String, String)> {
     let text = impls::strip_amp(ty);
-    let text = text.strip_prefix("dyn ").or_else(|| text.strip_prefix("impl ")).unwrap_or(text).trim().to_string();
+    let text = text
+        .strip_prefix("dyn ")
+        .or_else(|| text.strip_prefix("impl "))
+        .unwrap_or(text)
+        .trim()
+        .to_string();
     let path_end = text.find('<').unwrap_or(text.len());
     let path = text[..path_end].trim();
     let outer = path.rsplit("::").next()?.trim().to_string();
@@ -1418,7 +2047,11 @@ fn field_type_name(raw: &str) -> Option<String> {
     let t = t[..cut].trim();
     let seg = t.split("::").filter(|s| !s.is_empty()).last()?.to_string();
     if !is_ident(&seg)
-        || ["bool", "char", "str", "String", "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize", "f32", "f64", "Self", "self"].contains(&seg.as_str())
+        || [
+            "bool", "char", "str", "String", "i8", "i16", "i32", "i64", "i128", "isize", "u8",
+            "u16", "u32", "u64", "u128", "usize", "f32", "f64", "Self", "self",
+        ]
+        .contains(&seg.as_str())
     {
         return None;
     }
@@ -1434,7 +2067,11 @@ fn field_decl_at(line: &str, field: &str) -> Option<usize> {
     while let Some(i) = uses::find_word(&line[from..], field).map(|i| from + i) {
         from = i + 1;
         let before = line[..i].trim_end();
-        let ok_before = before.is_empty() || before.ends_with(['{', '(', ',']) || before.ends_with(']') || before.ends_with("pub") || before.ends_with(')');
+        let ok_before = before.is_empty()
+            || before.ends_with(['{', '(', ','])
+            || before.ends_with(']')
+            || before.ends_with("pub")
+            || before.ends_with(')');
         let after = line[i + field.len()..].trim_start();
         if ok_before && after.starts_with(':') && !after.starts_with("::") {
             return Some(i);
@@ -1447,8 +2084,14 @@ fn split_generic_names(generics: &str) -> Vec<String> {
     scopes::split_top_level(generics, ',')
         .iter()
         .filter_map(|p| {
-            let p = p.trim_start().strip_prefix("const ").unwrap_or(p.trim_start());
-            let id: String = p.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+            let p = p
+                .trim_start()
+                .strip_prefix("const ")
+                .unwrap_or(p.trim_start());
+            let id: String = p
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect();
             (!id.is_empty()).then_some(id)
         })
         .collect()
@@ -1510,7 +2153,11 @@ fn field_chain_at(sc: &scopes::Scopes, from: usize, limit: usize) -> Option<(usi
         let mut q = space_end(b, p + 1);
         if b.get(q) == Some(&b'&') {
             q = space_end(b, q + 1);
-            if code[q..].starts_with("mut") && !b.get(q + 3).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_') {
+            if code[q..].starts_with("mut")
+                && !b
+                    .get(q + 3)
+                    .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_')
+            {
                 q = space_end(b, q + 3);
             }
         }
@@ -1523,12 +2170,12 @@ fn field_chain_at(sc: &scopes::Scopes, from: usize, limit: usize) -> Option<(usi
     } else {
         let mut segs = Vec::new();
         let mut q = p;
-        loop {
-            let Some(id) = scopes::ident_at(code, q) else { break };
+        while let Some(id) = scopes::ident_at(code, q) {
             segs.push(id);
             q += id.len();
             let r = space_end(b, q);
-            if code[r..].starts_with("::") && scopes::ident_at(code, space_end(b, r + 2)).is_some() {
+            if code[r..].starts_with("::") && scopes::ident_at(code, space_end(b, r + 2)).is_some()
+            {
                 q = space_end(b, r + 2);
             } else {
                 break;
@@ -1554,7 +2201,8 @@ fn field_chain_at(sc: &scopes::Scopes, from: usize, limit: usize) -> Option<(usi
             }
             p = end + 1;
             typed = true;
-        } else if segs.len() == 1 && last.starts_with(|c: char| c.is_ascii_lowercase() || c == '_') {
+        } else if segs.len() == 1 && last.starts_with(|c: char| c.is_ascii_lowercase() || c == '_')
+        {
             p = q;
         } else {
             return None;
@@ -1567,7 +2215,9 @@ fn field_chain_at(sc: &scopes::Scopes, from: usize, limit: usize) -> Option<(usi
             break;
         }
         let q = space_end(b, q + 1);
-        let Some(id) = ident_or_index_at(code, q) else { break };
+        let Some(id) = ident_or_index_at(code, q) else {
+            break;
+        };
         if id == "await" || call_args_end(sc, q + id.len()).is_some() {
             break;
         }
@@ -1593,7 +2243,10 @@ fn written_call_receiver(sc: &scopes::Scopes, start: usize, name: &str) -> Optio
         return None;
     }
     let at = space_end(b, dot + 1);
-    if !code[at..].starts_with(name) || b.get(at + name.len()).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_') {
+    if !code[at..].starts_with(name)
+        || b.get(at + name.len())
+            .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_')
+    {
         return None;
     }
     let mut p = call_args_end(sc, at + name.len())?;
@@ -1612,9 +2265,13 @@ fn written_call_receiver(sc: &scopes::Scopes, start: usize, name: &str) -> Optio
             _ => break,
         }
         p = space_end(b, p + 1);
-        let Some(id) = ident_or_index_at(code, p) else { break };
+        let Some(id) = ident_or_index_at(code, p) else {
+            break;
+        };
         p += id.len();
-        let Some(args) = call_args_end(sc, p) else { continue };
+        let Some(args) = call_args_end(sc, p) else {
+            continue;
+        };
         if id == name {
             return None;
         }
@@ -1624,11 +2281,23 @@ fn written_call_receiver(sc: &scopes::Scopes, start: usize, name: &str) -> Optio
 }
 
 /// The receiver of a call kept with its receiver chain, as the blanked text writes it.
-fn chained_receiver(sc: &scopes::Scopes, start: usize, chain: &[String], name: &str) -> Option<String> {
+fn chained_receiver(
+    sc: &scopes::Scopes,
+    start: usize,
+    chain: &[String],
+    name: &str,
+) -> Option<String> {
     let code = sc.code.as_str();
     let b = code.as_bytes();
-    let word = |at: usize, id: &str| code[at..].starts_with(id) && !b.get(at + id.len()).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_');
-    if (start > 0 && (b[start - 1].is_ascii_alphanumeric() || b[start - 1] == b'_')) || !word(start, &chain[0]) {
+    let word = |at: usize, id: &str| {
+        code[at..].starts_with(id)
+            && !b
+                .get(at + id.len())
+                .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_')
+    };
+    if (start > 0 && (b[start - 1].is_ascii_alphanumeric() || b[start - 1] == b'_'))
+        || !word(start, &chain[0])
+    {
         return None;
     }
     let mut p = start + chain[0].len();
@@ -1656,7 +2325,14 @@ fn chained_receiver(sc: &scopes::Scopes, start: usize, chain: &[String], name: &
 }
 
 impl<'a> Ctx<'a> {
-    pub fn field_value_pub(&self, receiver: &str, field: &str, at: usize, sc: &scopes::Scopes, r: &Ref<'_>) -> Option<Written> {
+    pub fn field_value_pub(
+        &self,
+        receiver: &str,
+        field: &str,
+        at: usize,
+        sc: &scopes::Scopes,
+        r: &Ref<'_>,
+    ) -> Option<Written> {
         // The field read through `self`: built through `value_type` on `self.field`.
         self.value_type(&format!("{receiver}.{field}"), at, sc, r, 0)
     }

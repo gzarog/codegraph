@@ -184,6 +184,14 @@ impl Graph {
         out
     }
 
+    /// The unresolved (pending or failed) references made from `file`'s symbols.
+    pub fn open_refs_in_file(&self, file: &str) -> Vec<codegraph_core::UnresolvedReference> {
+        self.in_file(file)
+            .iter()
+            .flat_map(|n| self.store.open_refs_from(&n.id).unwrap())
+            .collect()
+    }
+
     /// Sorted qualified names the first function or method named `name` calls.
     pub fn callees(&self, name: &str) -> Vec<String> {
         let f = self

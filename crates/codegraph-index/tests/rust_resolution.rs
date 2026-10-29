@@ -3519,9 +3519,7 @@ pub fn local(db: &Db) -> u8 {
             vec!["Store::put instance-method self.store.put"]
         );
         let open: Vec<String> = g
-            .store
-            .refs_in_file("app/src/lib.rs")
-            .unwrap()
+            .open_refs_in_file("app/src/lib.rs")
             .into_iter()
             .filter(|r| r.reference_kind.as_str() == "calls")
             .map(|r| r.reference_name)
@@ -3623,9 +3621,7 @@ impl Svc {
             ("src/disk.rs", "pub struct Disk;\n"),
         ]);
         let parked: Vec<String> = g
-            .store
-            .refs_in_file("src/lib.rs")
-            .unwrap()
+            .open_refs_in_file("src/lib.rs")
             .into_iter()
             .filter(|r| r.reference_kind.as_str() == "calls")
             .map(|r| r.reference_name)

@@ -112,7 +112,8 @@ fn is_ident_byte(c: u8) -> bool {
 }
 
 fn ident_at_opt(code: &[u8], i: Option<usize>) -> bool {
-    i.and_then(|i| code.get(i)).is_some_and(|&c| is_ident_byte(c))
+    i.and_then(|i| code.get(i))
+        .is_some_and(|&c| is_ident_byte(c))
 }
 
 /// Rust source with its comments, and the contents of its strings, raw
@@ -187,7 +188,10 @@ pub fn blank_rust_code(src: &str) -> String {
             }
             b'\'' => {
                 if d == Some(b'\\') {
-                    if let Some(end) = s.get(i + 3..).and_then(|r| r.iter().position(|&b| b == b'\'')) {
+                    if let Some(end) = s
+                        .get(i + 3..)
+                        .and_then(|r| r.iter().position(|&b| b == b'\''))
+                    {
                         let end = i + 3 + end;
                         if end - i <= 12 {
                             blank(&mut out, i + 1, end);
@@ -211,6 +215,14 @@ pub fn blank_rust_code(src: &str) -> String {
     }
     // Blanking only rewrites whole UTF-8 sequences (strings, comments, chars) to spaces.
     String::from_utf8(out).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
+}
+
+/// The char boundary at or before `i`.
+pub fn floor_char(s: &str, mut i: usize) -> usize {
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
 }
 
 fn utf8_len(first: u8) -> usize {
@@ -325,7 +337,13 @@ pub fn walk_top(
         }
         if angles && c == b'<' {
             depth += 1;
-        } else if angles && c == b'>' && i > 0 && code[i - 1] != b'-' && code[i - 1] != b'=' && depth > 0 {
+        } else if angles
+            && c == b'>'
+            && i > 0
+            && code[i - 1] != b'-'
+            && code[i - 1] != b'='
+            && depth > 0
+        {
             depth -= 1;
         }
         i += 1;
@@ -373,7 +391,9 @@ pub fn word_at(code: &[u8], i: usize, word: &str) -> bool {
 }
 
 /// Words a pattern writes that bind nothing.
-const PATTERN_WORDS: &[&str] = &["ref", "mut", "box", "true", "false", "self", "Self", "crate", "super", "_"];
+const PATTERN_WORDS: &[&str] = &[
+    "ref", "mut", "box", "true", "false", "self", "Self", "crate", "super", "_",
+];
 
 fn is_binding_name(id: &str) -> bool {
     id.starts_with(|c: char| c.is_ascii_lowercase() || c == '_')
@@ -406,8 +426,7 @@ fn read_path(code: &str, at: usize) -> (Vec<String>, usize) {
     let b = code.as_bytes();
     let mut segments = Vec::new();
     let mut p = at;
-    loop {
-        let Some(id) = ident_at(code, p) else { break };
+    while let Some(id) = ident_at(code, p) {
         segments.push(id.to_string());
         p += id.len();
         let mut q = skip_space(b, p);
@@ -417,7 +436,9 @@ fn read_path(code: &str, at: usize) -> (Vec<String>, usize) {
         q = skip_space(b, q + 2);
         // A turbofish: `Foo::<T>::Bar`, `Vec::<u8>`.
         if b.get(q) == Some(&b'<') {
-            let Some(end) = angle_close(b, q, b.len()) else { break };
+            let Some(end) = angle_close(b, q, b.len()) else {
+                break;
+            };
             p = end + 1;
             q = skip_space(b, p);
             if !b[q..].starts_with(b"::") {
@@ -466,7 +487,10 @@ fn walk_pattern(
         let written = segments.join("::");
         if b.get(after) == Some(&b'(') {
             let end = close.get(&after).copied().unwrap_or(to).min(to);
-            for (index, (a, z)) in split_top(b, after + 1, end, close, false).into_iter().enumerate() {
+            for (index, (a, z)) in split_top(b, after + 1, end, close, false)
+                .into_iter()
+                .enumerate()
+            {
                 let s = PatternSite {
                     path: written.clone(),
                     index: Some(index),
@@ -482,7 +506,9 @@ fn walk_pattern(
             for (a, z) in split_top(b, after + 1, end, close, false) {
                 if let Some(colon) = top_colon(b, a, z, close) {
                     let field = code[a..colon].trim();
-                    if !field.is_empty() && field.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                    if !field.is_empty()
+                        && field.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    {
                         let s = PatternSite {
                             path: written.clone(),
                             index: None,
@@ -516,7 +542,11 @@ fn walk_pattern(
             emit(&segments[0], p, site.cloned());
         }
         // `name @ pattern`: the subpattern binds in its own right.
-        p = if b.get(after) == Some(&b'@') { after + 1 } else { end_path };
+        p = if b.get(after) == Some(&b'@') {
+            after + 1
+        } else {
+            end_path
+        };
     }
 }
 
@@ -541,7 +571,10 @@ fn opens_closure(code: &[u8], i: usize) -> bool {
         return k > 0 && code[k - 1] == b'=';
     }
     let mut s = k + 1;
-    while s > 0 && (code[s - 1].is_ascii_alphanumeric() || code[s - 1] == b'_') && k + 1 - (s - 1) <= 8 {
+    while s > 0
+        && (code[s - 1].is_ascii_alphanumeric() || code[s - 1] == b'_')
+        && k + 1 - (s - 1) <= 8
+    {
         s -= 1;
     }
     let word = &code[s..=k];
@@ -603,18 +636,24 @@ impl Scopes {
         let mut fns = Vec::new();
         for at in word_hits(b, "fn") {
             let mut p = skip_space(b, at + 2);
-            let Some(name) = ident_at(&code, p) else { continue };
+            let Some(name) = ident_at(&code, p) else {
+                continue;
+            };
             p = skip_space(b, p + name.len());
             let mut generics = String::new();
             if b.get(p) == Some(&b'<') {
-                let Some(end) = angle_close(b, p, n) else { continue };
+                let Some(end) = angle_close(b, p, n) else {
+                    continue;
+                };
                 generics = code[p + 1..end].to_string();
                 p = skip_space(b, end + 1);
             }
             if b.get(p) != Some(&b'(') {
                 continue;
             }
-            let Some(&params_end) = close.get(&p) else { continue };
+            let Some(&params_end) = close.get(&p) else {
+                continue;
+            };
             // The body: the first `{` past the return type and `where` clause.
             let mut body = None;
             let mut where_ = None;
@@ -641,7 +680,9 @@ impl Scopes {
             fns.push(RustFn {
                 at,
                 generics,
-                where_: where_.map(|w| code[w..body].to_string()).unwrap_or_default(),
+                where_: where_
+                    .map(|w| code[w..body].to_string())
+                    .unwrap_or_default(),
                 from: p,
                 to: close.get(&body).copied().unwrap_or(n),
                 params_end,
@@ -652,7 +693,8 @@ impl Scopes {
         // `impl<T: Bound> … {` and `trait Name<T>: Super where … {` — an item,
         // not the `impl Trait` of a type.
         let mut impls = Vec::new();
-        let mut hits: Vec<(usize, BlockKind)> = word_hits(b, "impl").map(|i| (i, BlockKind::Impl)).collect();
+        let mut hits: Vec<(usize, BlockKind)> =
+            word_hits(b, "impl").map(|i| (i, BlockKind::Impl)).collect();
         hits.extend(word_hits(b, "trait").map(|i| (i, BlockKind::Trait)));
         hits.sort_by_key(|h| h.0);
         for (at, kind) in hits {
@@ -663,8 +705,11 @@ impl Scopes {
                 }
                 if k >= 0 {
                     let ku = k as usize;
-                    let before = &code[ku.saturating_sub(7)..=ku];
-                    if !b"{};]".contains(&b[ku]) && !before.ends_with("unsafe") && !before.ends_with("default") {
+                    let before = &code[floor_char(&code, ku.saturating_sub(7))..=ku];
+                    if !b"{};]".contains(&b[ku])
+                        && !before.ends_with("unsafe")
+                        && !before.ends_with("default")
+                    {
                         continue;
                     }
                 }
@@ -672,12 +717,16 @@ impl Scopes {
             let kw = if kind == BlockKind::Impl { 4 } else { 5 };
             let mut p = skip_space(b, at + kw);
             if kind == BlockKind::Trait {
-                let Some(name) = ident_at(&code, p) else { continue };
+                let Some(name) = ident_at(&code, p) else {
+                    continue;
+                };
                 p = skip_space(b, p + name.len());
             }
             let mut generics = String::new();
             if b.get(p) == Some(&b'<') {
-                let Some(end) = angle_close(b, p, n) else { continue };
+                let Some(end) = angle_close(b, p, n) else {
+                    continue;
+                };
                 generics = code[p + 1..end].to_string();
                 p = end + 1;
             }
@@ -707,7 +756,9 @@ impl Scopes {
                 at,
                 kind,
                 generics,
-                where_: where_.map(|w| code[w..open].to_string()).unwrap_or_default(),
+                where_: where_
+                    .map(|w| code[w..open].to_string())
+                    .unwrap_or_default(),
                 from: open,
                 to: close.get(&open).copied().unwrap_or(n),
             });
@@ -790,7 +841,10 @@ impl Scopes {
     /// The binding of `name` in scope at `offset`: the innermost, latest one,
     /// and whether an alternative pattern binds it more than once there.
     pub fn binding_at(&self, name: &str, offset: usize) -> Option<(&Binding, bool)> {
-        let list = self.bindings.get_or_init(|| self.read_bindings()).get(name)?;
+        let list = self
+            .bindings
+            .get_or_init(|| self.read_bindings())
+            .get(name)?;
         let best = list
             .iter()
             .filter(|b| offset >= b.from && offset < b.to)
@@ -800,7 +854,10 @@ impl Scopes {
                 && b.from == best.from
                 && b.to == best.to
                 && b.kind == best.kind
-                && matches!(b.kind, BindingKind::Arm | BindingKind::Cond | BindingKind::Let)
+                && matches!(
+                    b.kind,
+                    BindingKind::Arm | BindingKind::Cond | BindingKind::Let
+                )
         });
         Some((best, ambiguous))
     }
@@ -815,8 +872,11 @@ impl Scopes {
         let close = &self.close;
         let n = b.len();
         let mut bindings: HashMap<String, Vec<Binding>> = HashMap::new();
-        let mut add = |name: &str, binding: Binding| bindings.entry(name.to_string()).or_default().push(binding);
+        let mut add = |name: &str, binding: Binding| {
+            bindings.entry(name.to_string()).or_default().push(binding)
+        };
 
+        #[allow(clippy::too_many_arguments)]
         fn bind_pattern(
             code: &str,
             close: &HashMap<usize, usize>,
@@ -848,7 +908,10 @@ impl Scopes {
             if b.get(open) == Some(&b'(') {
                 if let Some(&end) = close.get(&open) {
                     if end < to && skip_space(b, end + 1) >= to {
-                        for (index, (a, z)) in split_top(b, open + 1, end, close, false).into_iter().enumerate() {
+                        for (index, (a, z)) in split_top(b, open + 1, end, close, false)
+                            .into_iter()
+                            .enumerate()
+                        {
                             let text = &code[a..z];
                             match simple_name(text, true) {
                                 Some(name) if is_binding_name(name) => emit(
@@ -871,7 +934,11 @@ impl Scopes {
         }
 
         // A parameter `pattern: Type`, or a closure's `pattern`.
-        let param = |from: usize, to: usize, kind: BindingKind, scope: (usize, usize), add: &mut dyn FnMut(&str, Binding)| {
+        let param = |from: usize,
+                     to: usize,
+                     kind: BindingKind,
+                     scope: (usize, usize),
+                     add: &mut dyn FnMut(&str, Binding)| {
             let colon = top_colon(b, from, to, close);
             let pattern = &code[from..colon.unwrap_or(to)];
             if let Some(name) = simple_name(pattern, false) {
@@ -892,7 +959,16 @@ impl Scopes {
                 }
                 return;
             }
-            bind_pattern(code, close, from, colon.unwrap_or(to), kind, scope, None, add);
+            bind_pattern(
+                code,
+                close,
+                from,
+                colon.unwrap_or(to),
+                kind,
+                scope,
+                None,
+                add,
+            );
         };
 
         for f in &self.fns {
@@ -960,8 +1036,10 @@ impl Scopes {
                 && !(i > 0 && b"=!<>".contains(&b[i - 1]))
         };
         for at in word_hits(b, "let") {
-            let before = code[at.saturating_sub(16)..at].trim_end();
-            let cond = before.ends_with("&&") || ends_with_word(before, "if") || ends_with_word(before, "while");
+            let before = code[floor_char(code, at.saturating_sub(16))..at].trim_end();
+            let cond = before.ends_with("&&")
+                || ends_with_word(before, "if")
+                || ends_with_word(before, "while");
             let pat_from = at + 3;
             let pat_end = walk_top(b, pat_from, n, close, false, |i| match b[i] {
                 b';' | b'}' => true,
@@ -995,7 +1073,9 @@ impl Scopes {
                 let open = if b.get(value_end) == Some(&b'{') {
                     value_end
                 } else {
-                    walk_top(b, value_end, n, close, false, |i| b[i] == b'{' || b[i] == b';')
+                    walk_top(b, value_end, n, close, false, |i| {
+                        b[i] == b'{' || b[i] == b';'
+                    })
                 };
                 if b.get(open) != Some(&b'{') {
                     continue;
@@ -1021,7 +1101,9 @@ impl Scopes {
                         || b[i] == b'}'
                         || (b[i] == b'e'
                             && word_at(b, i, "else")
-                            && !code[i.saturating_sub(64)..i].trim_end().ends_with('}'))
+                            && !code[floor_char(code, i.saturating_sub(64))..i]
+                                .trim_end()
+                                .ends_with('}'))
                 });
                 init_end = stop;
                 if b.get(stop) == Some(&b'e') {
@@ -1032,14 +1114,22 @@ impl Scopes {
                         n
                     };
                     let semi = skip_space(b, else_end + 1);
-                    stmt_end = if b.get(semi) == Some(&b';') { semi } else { else_end };
+                    stmt_end = if b.get(semi) == Some(&b';') {
+                        semi
+                    } else {
+                        else_end
+                    };
                 } else {
                     stmt_end = stop;
                 }
             } else {
-                stmt_end = walk_top(b, pat_end, n, close, false, |i| b[i] == b';' || b[i] == b'}');
+                stmt_end = walk_top(b, pat_end, n, close, false, |i| {
+                    b[i] == b';' || b[i] == b'}'
+                });
             }
-            let Some(block) = self.block_at(at) else { continue };
+            let Some(block) = self.block_at(at) else {
+                continue;
+            };
             let scope = (stmt_end + 1, block.1);
             let init = eq.map(|e| code[e + 1..init_end.min(n)].trim().to_string());
             if let Some(name) = simple {
@@ -1061,7 +1151,16 @@ impl Scopes {
                 }
                 continue;
             }
-            bind_pattern(code, close, pat_from, pat_end, BindingKind::Let, scope, init.as_deref(), &mut add);
+            bind_pattern(
+                code,
+                close,
+                pat_from,
+                pat_end,
+                BindingKind::Let,
+                scope,
+                init.as_deref(),
+                &mut add,
+            );
         }
 
         for at in word_hits(b, "for") {
@@ -1071,12 +1170,17 @@ impl Scopes {
                 continue;
             }
             let in_at = walk_top(b, p, n, close, false, |i| {
-                b[i] == b'{' || b[i] == b';' || b[i] == b'=' || (b[i] == b'i' && word_at(b, i, "in"))
+                b[i] == b'{'
+                    || b[i] == b';'
+                    || b[i] == b'='
+                    || (b[i] == b'i' && word_at(b, i, "in"))
             });
             if b.get(in_at) != Some(&b'i') {
                 continue;
             }
-            let open = walk_top(b, in_at + 2, n, close, false, |i| b[i] == b'{' || b[i] == b';');
+            let open = walk_top(b, in_at + 2, n, close, false, |i| {
+                b[i] == b'{' || b[i] == b';'
+            });
             if b.get(open) != Some(&b'{') {
                 continue;
             }
@@ -1095,7 +1199,9 @@ impl Scopes {
 
         for at in word_hits(b, "match") {
             let from = at + 5;
-            let open = walk_top(b, from, n, close, false, |i| matches!(b[i], b'{' | b';' | b'}'));
+            let open = walk_top(b, from, n, close, false, |i| {
+                matches!(b[i], b'{' | b';' | b'}')
+            });
             if b.get(open) != Some(&b'{') {
                 continue;
             }
@@ -1117,7 +1223,9 @@ impl Scopes {
                     continue;
                 }
                 // The pattern, without its guard; the guard sees what it binds.
-                let guard = walk_top(b, arm_start, p, close, false, |i| b[i] == b'i' && word_at(b, i, "if"));
+                let guard = walk_top(b, arm_start, p, close, false, |i| {
+                    b[i] == b'i' && word_at(b, i, "if")
+                });
                 let mut q = skip_space(b, p + 2);
                 let arm_end;
                 if b.get(q) == Some(&b'{') {
@@ -1294,11 +1402,23 @@ mod tests {
         let blk = s.impl_at(f.at).unwrap();
         assert_eq!(blk.generics, "S: Store");
         let items = [
-            Generics { generics: &f.generics, where_: &f.where_ },
-            Generics { generics: &blk.generics, where_: &blk.where_ },
+            Generics {
+                generics: &f.generics,
+                where_: &f.where_,
+            },
+            Generics {
+                generics: &blk.generics,
+                where_: &blk.where_,
+            },
         ];
-        assert_eq!(bounds_of("K", &items), Some(vec!["Key".to_string(), "Clone".to_string()]));
-        assert_eq!(bounds_of("S", &items), Some(vec!["Store".to_string(), "Send".to_string()]));
+        assert_eq!(
+            bounds_of("K", &items),
+            Some(vec!["Key".to_string(), "Clone".to_string()])
+        );
+        assert_eq!(
+            bounds_of("S", &items),
+            Some(vec!["Store".to_string(), "Send".to_string()])
+        );
         assert_eq!(bounds_of("Z", &items), None);
     }
 }

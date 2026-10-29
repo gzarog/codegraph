@@ -31,7 +31,10 @@ pub fn strip_refs(t: &str) -> &str {
         if let Some(r) = t.strip_prefix('&') {
             t = r.trim_start();
             if t.starts_with('\'') {
-                t = t.split_once(char::is_whitespace).map_or("", |(_, r)| r).trim_start();
+                t = t
+                    .split_once(char::is_whitespace)
+                    .map_or("", |(_, r)| r)
+                    .trim_start();
             }
             if let Some(r) = t.strip_prefix("mut") {
                 if r.starts_with(char::is_whitespace) {
@@ -56,7 +59,10 @@ pub fn strip_amp(t: &str) -> &str {
     while let Some(r) = t.strip_prefix('&') {
         t = r.trim_start();
         if t.starts_with('\'') {
-            t = t.split_once(char::is_whitespace).map_or("", |(_, r)| r).trim_start();
+            t = t
+                .split_once(char::is_whitespace)
+                .map_or("", |(_, r)| r)
+                .trim_start();
         }
         if let Some(r) = t.strip_prefix("mut") {
             if r.starts_with(char::is_whitespace) {
@@ -74,7 +80,10 @@ pub fn idents_of(text: &str) -> Vec<String> {
     let mut i = 0;
     while i < b.len() {
         let c = b[i];
-        if (c.is_ascii_alphabetic() || c == b'_') && (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_' || b[i - 1] == b'\'')) {
+        if (c.is_ascii_alphabetic() || c == b'_')
+            && (i == 0
+                || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_' || b[i - 1] == b'\''))
+        {
             let s = i;
             while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
                 i += 1;
@@ -92,7 +101,11 @@ pub fn parse_impl_header(text: &str) -> Option<ImplHeader> {
     let mut rest = text.trim_start();
     if let Some(r) = rest.strip_prefix("pub") {
         let r2 = r.trim_start();
-        rest = if r2.starts_with('(') { r2.find(')').map_or(r2, |e| &r2[e + 1..]) } else { r2 };
+        rest = if r2.starts_with('(') {
+            r2.find(')').map_or(r2, |e| &r2[e + 1..])
+        } else {
+            r2
+        };
         rest = rest.trim_start();
     }
     if let Some(r) = rest.strip_prefix("unsafe") {
@@ -140,7 +153,11 @@ pub fn parse_impl_header(text: &str) -> Option<ImplHeader> {
         match b[i] {
             b'<' => depth += 1,
             b'>' => depth -= 1,
-            c if depth == 0 && c.is_ascii_whitespace() && rest[i + 1..].starts_with("for") && rest[i + 4..].starts_with(char::is_whitespace) => {
+            c if depth == 0
+                && c.is_ascii_whitespace()
+                && rest[i + 1..].starts_with("for")
+                && rest[i + 4..].starts_with(char::is_whitespace) =>
+            {
                 split = Some(i);
                 break;
             }
@@ -153,12 +170,19 @@ pub fn parse_impl_header(text: &str) -> Option<ImplHeader> {
         let p = strip_refs(part).trim();
         let p = p.split('<').next().unwrap_or(p).trim();
         let last = p.rsplit("::").next().unwrap_or(p).trim();
-        if is_ident(last) { last.to_string() } else { String::new() }
+        if is_ident(last) {
+            last.to_string()
+        } else {
+            String::new()
+        }
     };
     let args = |part: &str| -> Vec<String> {
         match part.find('<') {
             None => Vec::new(),
-            Some(o) => idents_of(&part[o + 1..]).into_iter().filter(|i| i != "mut" && i != "dyn").collect(),
+            Some(o) => idents_of(&part[o + 1..])
+                .into_iter()
+                .filter(|i| i != "mut" && i != "dyn")
+                .collect(),
         }
     };
     let self_part = rest[split + 5..].trim();
@@ -173,8 +197,12 @@ pub fn parse_impl_header(text: &str) -> Option<ImplHeader> {
             .filter_map(|p| {
                 let p = p.trim_start();
                 let p = p.strip_prefix("const ").unwrap_or(p).trim_start();
-                let id: String = p.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
-                (!id.is_empty() && id.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')).then_some(id)
+                let id: String = p
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect();
+                (!id.is_empty() && id.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_'))
+                    .then_some(id)
             })
             .collect(),
     })
@@ -184,11 +212,17 @@ fn is_item_line(line: &str) -> bool {
     let mut t = line;
     if let Some(r) = t.strip_prefix("pub") {
         let r2 = r.trim_start();
-        t = if r2.starts_with('(') { r2.find(')').map_or(r2, |e| r2[e + 1..].trim_start()) } else { r2 };
+        t = if r2.starts_with('(') {
+            r2.find(')').map_or(r2, |e| r2[e + 1..].trim_start())
+        } else {
+            r2
+        };
     }
-    ["fn", "struct", "enum", "mod", "trait", "const", "static", "type"]
-        .iter()
-        .any(|w| starts_with_word(t, w))
+    [
+        "fn", "struct", "enum", "mod", "trait", "const", "static", "type",
+    ]
+    .iter()
+    .any(|w| starts_with_word(t, w))
 }
 
 fn without_comment(l: &str) -> &str {
@@ -198,14 +232,15 @@ fn without_comment(l: &str) -> &str {
 impl<'a> Ctx<'a> {
     /// The `impl … {` header text at or above a line (lines joined until the `{`).
     fn header_text(&self, file: &str, header_line: u32) -> String {
-        let Some(src) = self.source(file) else { return String::new() };
-        let lines: Vec<&str> = src.lines().collect();
+        let Some(src) = self.source(file) else {
+            return String::new();
+        };
         let i = header_line as usize - 1;
-        let mut text = without_comment(lines.get(i).copied().unwrap_or("")).to_string();
+        let mut text = without_comment(src.line0(i).unwrap_or("")).to_string();
         let mut j = i + 1;
-        while !text.contains('{') && j < lines.len().min(i + 8) {
+        while !text.contains('{') && j < src.line_count().min(i + 8) {
             text.push(' ');
-            text.push_str(without_comment(lines[j]));
+            text.push_str(without_comment(src.line0(j).unwrap_or("")));
             j += 1;
         }
         text
@@ -216,11 +251,10 @@ impl<'a> Ctx<'a> {
         self.memo(10, method.to_string(), || {
             let m = self.syms.get(method);
             let src = self.source(&m.file)?;
-            let lines: Vec<&str> = src.lines().collect();
             let mut i = (m.start_line as usize).saturating_sub(1);
             while i > 0 {
                 i -= 1;
-                let line = lines.get(i).copied().unwrap_or("");
+                let line = src.line0(i).unwrap_or("");
                 if is_impl_line(line) {
                     return parse_impl_header(&self.header_text(&m.file, i as u32 + 1));
                 }
@@ -239,12 +273,13 @@ impl<'a> Ctx<'a> {
             return false;
         }
         self.memo(11, cand.to_string(), || {
-            let Some(src) = self.source(&m.file) else { return false };
-            let lines: Vec<&str> = src.lines().collect();
+            let Some(src) = self.source(&m.file) else {
+                return false;
+            };
             let mut i = (m.start_line as usize).saturating_sub(1);
             while i > 0 {
                 i -= 1;
-                let line = lines.get(i).copied().unwrap_or("");
+                let line = src.line0(i).unwrap_or("");
                 if is_impl_line(line) {
                     let l = without_comment(line);
                     return l.contains(" for ") || l.contains("\tfor ") || l.contains(" for\t");
@@ -268,7 +303,11 @@ impl<'a> Ctx<'a> {
         let mut t2 = t;
         if let Some(r) = t2.strip_prefix("pub") {
             let r2 = r.trim_start();
-            t2 = if r2.starts_with('(') { r2.find(')').map_or(r2, |e| r2[e + 1..].trim_start()) } else { r2 };
+            t2 = if r2.starts_with('(') {
+                r2.find(')').map_or(r2, |e| r2[e + 1..].trim_start())
+            } else {
+                r2
+            };
         }
         if let Some(r) = t2.strip_prefix("unsafe") {
             t2 = r.trim_start();
@@ -319,7 +358,8 @@ impl<'a> Ctx<'a> {
     /// Whether `Self`'s type comes from outside the project.
     pub fn is_outside_self(&self, s: &SelfType, file: &str) -> bool {
         if let Some(root) = &s.root {
-            return matches!(root.as_str(), "std" | "core" | "alloc") || self.graph().dependencies.contains(root);
+            return matches!(root.as_str(), "std" | "core" | "alloc")
+                || self.graph().dependencies.contains(root);
         }
         let uses = self.uses(file);
         if uses.external.contains(&s.ty) && !uses.bound.contains(&s.ty) {
@@ -345,9 +385,10 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
-        ["Pin", "Box", "Rc", "Arc"]
-            .into_iter()
-            .find(|w| t.strip_prefix(w).is_some_and(|r| r.trim_start().starts_with('<')))
+        ["Pin", "Box", "Rc", "Arc"].into_iter().find(|w| {
+            t.strip_prefix(w)
+                .is_some_and(|r| r.trim_start().starts_with('<'))
+        })
     }
 
     /// The trait whose body declares a Rust method, if one does.
@@ -357,15 +398,21 @@ impl<'a> Ctx<'a> {
             let owner = m.owner()?.rsplit("::").next()?.to_string();
             self.syms.in_file(&m.file).iter().copied().find(|&i| {
                 let t = self.syms.get(i);
-                t.kind == NodeKind::Trait && t.name == owner && t.start_line <= m.start_line && t.end_line >= m.start_line
+                t.kind == NodeKind::Trait
+                    && t.name == owner
+                    && t.start_line <= m.start_line
+                    && t.end_line >= m.start_line
             })
         })
     }
 
     /// Whether `method`'s impl on a wrapper applies to one of `inner`.
     pub fn impl_for(&self, method: SymId, inner: Option<&str>) -> bool {
-        self.trait_impl_header(method)
-            .is_some_and(|h| h.self_args.iter().any(|a| h.params.contains(a) || Some(a.as_str()) == inner))
+        self.trait_impl_header(method).is_some_and(|h| {
+            h.self_args
+                .iter()
+                .any(|a| h.params.contains(a) || Some(a.as_str()) == inner)
+        })
     }
 }
 
@@ -374,7 +421,11 @@ fn is_impl_line(line: &str) -> bool {
         let t = line.trim_start();
         let t = t.strip_prefix("pub").map_or(t, |r| {
             let r = r.trim_start();
-            if r.starts_with('(') { r.find(')').map_or(r, |e| r[e + 1..].trim_start()) } else { r }
+            if r.starts_with('(') {
+                r.find(')').map_or(r, |e| r[e + 1..].trim_start())
+            } else {
+                r
+            }
         });
         let t = t.strip_prefix("unsafe").map_or(t, str::trim_start);
         starts_with_word(t, "impl")
@@ -385,8 +436,7 @@ fn is_impl_line(line: &str) -> bool {
 fn path_segments(text: &str) -> Vec<String> {
     let mut segs = Vec::new();
     let mut t = text.trim_start();
-    loop {
-        let Some(id) = super::scopes::ident_at(t, 0) else { break };
+    while let Some(id) = super::scopes::ident_at(t, 0) {
         segs.push(id.to_string());
         t = t[id.len()..].trim_start();
         match t.strip_prefix("::") {
@@ -439,7 +489,8 @@ mod tests {
 
     #[test]
     fn parses_impl_headers() {
-        let h = parse_impl_header("impl<'a, T> From<&'a Handle> for NonNull<Entry> where T: X {").unwrap();
+        let h = parse_impl_header("impl<'a, T> From<&'a Handle> for NonNull<Entry> where T: X {")
+            .unwrap();
         assert_eq!(h.trait_, "From");
         assert_eq!(h.trait_args, vec!["Handle"]);
         assert_eq!(h.self_, "NonNull");
@@ -450,6 +501,9 @@ mod tests {
         assert_eq!(h.self_text, "semverlib::Range");
         assert!(parse_impl_header("impl<T> Pool<T> {").is_none());
         let h = parse_impl_header("impl<P: DerefMut> AsyncWrite for Pin<P> {").unwrap();
-        assert_eq!((h.self_.as_str(), h.self_args.clone(), h.params.clone()), ("Pin", vec!["P".to_string()], vec!["P".to_string()]));
+        assert_eq!(
+            (h.self_.as_str(), h.self_args.clone(), h.params.clone()),
+            ("Pin", vec!["P".to_string()], vec!["P".to_string()])
+        );
     }
 }

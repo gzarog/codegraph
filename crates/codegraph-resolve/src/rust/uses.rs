@@ -59,11 +59,14 @@ pub fn use_statements(code: &str) -> Vec<(usize, &str)> {
     let mut from = 0;
     while let Some(i) = super::scopes::find(b, b"use", from) {
         from = i + 3;
-        let ok_before = i == 0 || matches!(b[i - 1], b';' | b'{' | b'}') || b[i - 1].is_ascii_whitespace();
+        let ok_before =
+            i == 0 || matches!(b[i - 1], b';' | b'{' | b'}') || b[i - 1].is_ascii_whitespace();
         if !ok_before || !b.get(i + 3).is_some_and(|c| c.is_ascii_whitespace()) {
             continue;
         }
-        let Some(semi) = code[i..].find(';') else { continue };
+        let Some(semi) = code[i..].find(';') else {
+            continue;
+        };
         let tree = &code[i + 3..i + semi];
         if tree.len() > 2000 || tree.trim().is_empty() {
             continue;
@@ -88,7 +91,11 @@ pub fn use_tree_bindings(tree: &str) -> Vec<(Vec<String>, Option<String>)> {
         } else if matches!(c, b'{' | b'}' | b',' | b'*') {
             tokens.push((c as char).to_string());
             i += 1;
-        } else if c.is_ascii_alphabetic() || c == b'_' || c == b'$' || (c == b'r' && b.get(i + 1) == Some(&b'#')) {
+        } else if c.is_ascii_alphabetic()
+            || c == b'_'
+            || c == b'$'
+            || (c == b'r' && b.get(i + 1) == Some(&b'#'))
+        {
             let start = i;
             if c == b'r' && b.get(i + 1) == Some(&b'#') {
                 i += 2;
@@ -105,7 +112,12 @@ pub fn use_tree_bindings(tree: &str) -> Vec<(Vec<String>, Option<String>)> {
     }
     let mut out = Vec::new();
     let mut i = 0;
-    fn read(tokens: &[String], i: &mut usize, prefix: &[String], out: &mut Vec<(Vec<String>, Option<String>)>) {
+    fn read(
+        tokens: &[String],
+        i: &mut usize,
+        prefix: &[String],
+        out: &mut Vec<(Vec<String>, Option<String>)>,
+    ) {
         let mut segs: Vec<String> = prefix.to_vec();
         while *i < tokens.len() {
             let t = tokens[*i].as_str();
@@ -168,7 +180,8 @@ pub fn use_tree_bindings(tree: &str) -> Vec<(Vec<String>, Option<String>)> {
 }
 
 pub fn is_ident(s: &str) -> bool {
-    s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// The leaves a `use` tree binds (`as` aliases by their alias), and `io` of `io::{self, …}`.
@@ -201,7 +214,9 @@ fn mod_blocks(code: &str) -> (Vec<ModBlock>, bool) {
         if b[p..].starts_with(b"r#") {
             p += 2;
         }
-        let Some(name) = super::scopes::ident_at(code, p) else { continue };
+        let Some(name) = super::scopes::ident_at(code, p) else {
+            continue;
+        };
         let q = super::scopes::skip_space(b, p + name.len());
         if b.get(q) == Some(&b'{') {
             heads.insert(q, name.to_string());
@@ -263,17 +278,23 @@ impl Uses {
             balanced: true,
             ..Default::default()
         };
-        let Some(scopes) = ctx.scopes(file) else { return uses };
+        let Some(scopes) = ctx.scopes(file) else {
+            return uses;
+        };
         let code = scopes.code.as_str();
         let deps = &ctx.graph().dependencies;
         for (at, tree) in use_statements(code) {
             let t = tree.trim_start().trim_start_matches("::");
             let root = super::scopes::ident_at(t, 0).unwrap_or("");
             let outside = STD_ROOTS.contains(&root) || (!root.is_empty() && deps.contains(root));
-            let before = code[at.saturating_sub(48)..at].trim_end();
+            let before =
+                code[super::scopes::floor_char(code, at.saturating_sub(48))..at].trim_end();
             let is_pub = ends_with_pub(before);
             for (segs, local) in use_tree_bindings(tree) {
-                if segs.is_empty() || segs[0].starts_with('$') || STD_ROOTS.contains(&segs[0].as_str()) {
+                if segs.is_empty()
+                    || segs[0].starts_with('$')
+                    || STD_ROOTS.contains(&segs[0].as_str())
+                {
                     continue;
                 }
                 let path = UsePath { segs, at, is_pub };
@@ -289,7 +310,10 @@ impl Uses {
             }
             for id in leaves {
                 uses.bound.insert(id.clone());
-                uses.bound_from.entry(id).or_default().insert(root.to_string());
+                uses.bound_from
+                    .entry(id)
+                    .or_default()
+                    .insert(root.to_string());
             }
             for id in idents(tree) {
                 uses.names.insert(id.to_string());
@@ -312,9 +336,13 @@ impl Uses {
                     }
                 }
                 let h = tree[..j].trim_end();
-                let Some(h) = h.strip_suffix("::") else { continue };
+                let Some(h) = h.strip_suffix("::") else {
+                    continue;
+                };
                 let h = h.trim_end();
-                let start = h.rfind(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).map_or(0, |p| p + 1);
+                let start = h
+                    .rfind(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                    .map_or(0, |p| p + 1);
                 if start < h.len() {
                     uses.globs.insert(h[start..].to_string());
                 }
@@ -324,8 +352,8 @@ impl Uses {
         uses.blocks = blocks;
         uses.balanced = balanced;
         // `#[path = "…"] mod imp;`, `#[cfg_attr(docsrs, path = "…")] pub mod de;`
-        let source = ctx.source(file).unwrap_or_default();
-        for name in path_mods(&source) {
+        let source = ctx.source(file);
+        for name in path_mods(source.as_ref().map_or("", |s| s.text.as_str())) {
             uses.path_mods.insert(name);
         }
         uses
@@ -357,7 +385,9 @@ fn path_mods(source: &str) -> Vec<String> {
     while let Some(i) = source[from..].find("#[") {
         let at = from + i;
         from = at + 2;
-        let Some(end) = source[at..].find(']') else { break };
+        let Some(end) = source[at..].find(']') else {
+            break;
+        };
         let attr = &source[at + 2..at + end];
         let a = attr.trim_start();
         let is_path = (a.starts_with("path") && a[4..].trim_start().starts_with('='))
@@ -448,7 +478,10 @@ pub fn module_path(file: &str) -> Vec<String> {
             break;
         }
     }
-    let mut modules: Vec<String> = parts[(at + 1) as usize..].iter().map(|s| s.to_string()).collect();
+    let mut modules: Vec<String> = parts[(at + 1) as usize..]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     let last = modules.pop().unwrap_or_default();
     let last = last.trim_end_matches(".rs");
     if !matches!(last, "mod" | "lib" | "main") {
@@ -473,9 +506,16 @@ impl<'a> Ctx<'a> {
     pub fn is_target_root(&self, file: &str) -> bool {
         let g = self.graph();
         let Some(dir) = g.crate_dir_of(file) else {
-            return file.ends_with("/lib.rs") || file.ends_with("/main.rs") || file == "lib.rs" || file == "main.rs";
+            return file.ends_with("/lib.rs")
+                || file.ends_with("/main.rs")
+                || file == "lib.rs"
+                || file == "main.rs";
         };
-        let rel = if dir.is_empty() { file } else { &file[dir.len() + 1..] };
+        let rel = if dir.is_empty() {
+            file
+        } else {
+            &file[dir.len() + 1..]
+        };
         if rel == "src/lib.rs" || rel == "src/main.rs" || rel == "build.rs" {
             return true;
         }
@@ -510,7 +550,9 @@ impl<'a> Ctx<'a> {
     pub fn module_at(&self, file: &str, offset: usize) -> Module {
         let own = self.file_module(file);
         let uses = self.uses(file);
-        let Some(block) = block_at(&uses.blocks, offset) else { return own };
+        let Some(block) = block_at(&uses.blocks, offset) else {
+            return own;
+        };
         let mut names = Vec::new();
         let mut b = Some(block);
         while let Some(k) = b {
@@ -534,12 +576,20 @@ impl<'a> Ctx<'a> {
     pub fn crate_root_module(&self, file: &str) -> Option<Module> {
         let g = self.graph();
         let dir = g.crate_dir_of(file)?;
-        let base = if dir.is_empty() { String::new() } else { format!("{dir}/") };
+        let base = if dir.is_empty() {
+            String::new()
+        } else {
+            format!("{dir}/")
+        };
         let rel = &file[base.len()..];
         let parts: Vec<&str> = rel.split('/').collect();
         let target = match parts.as_slice() {
             ["src", "bin", rest @ ..] if !rest.is_empty() => Some(("src/bin", rest)),
-            [t, rest @ ..] if matches!(*t, "tests" | "examples" | "benches") && !rest.is_empty() => Some((*t, rest)),
+            [t, rest @ ..]
+                if matches!(*t, "tests" | "examples" | "benches") && !rest.is_empty() =>
+            {
+                Some((*t, rest))
+            }
             _ => None,
         };
         if let Some((kind, rest)) = target {
@@ -565,7 +615,11 @@ impl<'a> Ctx<'a> {
         if !has_lib && !has_main {
             return None;
         }
-        let f = if has_main && (file == main || !has_lib) { main.clone() } else { lib.clone() };
+        let f = if has_main && (file == main || !has_lib) {
+            main.clone()
+        } else {
+            lib.clone()
+        };
         let alt = (has_lib && has_main).then(|| if f == lib { main } else { lib });
         Some(Module {
             file: f,
@@ -578,7 +632,11 @@ impl<'a> Ctx<'a> {
 
     /// The root of a project crate's library.
     pub fn lib_module(&self, crate_dir: &str) -> Option<Module> {
-        let file = if crate_dir.is_empty() { "src/lib.rs".to_string() } else { format!("{crate_dir}/src/lib.rs") };
+        let file = if crate_dir.is_empty() {
+            "src/lib.rs".to_string()
+        } else {
+            format!("{crate_dir}/src/lib.rs")
+        };
         self.file_exists(&file).then(|| Module {
             dir: parent_dir(&file).to_string(),
             file,
@@ -596,7 +654,11 @@ impl<'a> Ctx<'a> {
         if layout.path_mods.contains(name) {
             return None;
         }
-        if let Some(k) = layout.blocks.iter().position(|b| b.name == name && b.parent == m.block) {
+        if let Some(k) = layout
+            .blocks
+            .iter()
+            .position(|b| b.name == name && b.parent == m.block)
+        {
             return Some(Module {
                 file: m.file.clone(),
                 dir,
@@ -655,7 +717,10 @@ impl<'a> Ctx<'a> {
         }
         files.push(join(dir, "lib.rs"));
         files.push(join(dir, "main.rs"));
-        files.into_iter().find(|f| self.file_exists(f)).map(|f| self.file_module(&f))
+        files
+            .into_iter()
+            .find(|f| self.file_exists(f))
+            .map(|f| self.file_module(&f))
     }
 
     /// The module the segments of a `use` path walk to from `from`.
@@ -742,7 +807,13 @@ impl<'a> Ctx<'a> {
 
     /// The items named `name` in module `m`, as Rust looks a name up in a
     /// module. None when one of them can't be followed.
-    pub fn module_items(&self, m: &Module, name: &str, seen: &mut HashSet<String>, public_only: bool) -> Option<Vec<SymId>> {
+    pub fn module_items(
+        &self,
+        m: &Module,
+        name: &str,
+        seen: &mut HashSet<String>,
+        public_only: bool,
+    ) -> Option<Vec<SymId>> {
         let key = format!("{}\0{:?}\0{name}\0{public_only}", m.file, m.block);
         if seen.contains(&key) {
             return Some(Vec::new());
@@ -760,16 +831,29 @@ impl<'a> Ctx<'a> {
             if !declared.is_empty() {
                 return Some(declared);
             }
-            let here = |p: &UsePath| (p.is_pub || !public_only) && block_at(&uses.blocks, p.at) == m.block;
+            let here =
+                |p: &UsePath| (p.is_pub || !public_only) && block_at(&uses.blocks, p.at) == m.block;
             let mut found = Vec::new();
-            for p in uses.paths.get(name).map(Vec::as_slice).unwrap_or(&[]).iter().filter(|p| here(p)) {
+            for p in uses
+                .paths
+                .get(name)
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+                .iter()
+                .filter(|p| here(p))
+            {
                 found.extend(self.use_path_items(&p.segs, m, seen)?);
             }
             // A `use` of the name shadows the globs — in its own namespace.
             if !found.is_empty() {
                 return Some(found);
             }
-            let globs: Vec<UsePath> = uses.glob_paths.iter().filter(|p| here(p)).cloned().collect();
+            let globs: Vec<UsePath> = uses
+                .glob_paths
+                .iter()
+                .filter(|p| here(p))
+                .cloned()
+                .collect();
             self.globbed_items(&globs, &|_| m.clone(), name, seen)
         })();
         seen.remove(&key);
@@ -818,12 +902,21 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
-        let prefix = if outer.dir.is_empty() { String::new() } else { format!("{}/", outer.dir) };
+        let prefix = if outer.dir.is_empty() {
+            String::new()
+        } else {
+            format!("{}/", outer.dir)
+        };
         inner.file.starts_with(&prefix) && !(outer.dir.is_empty() && outer.block.is_some())
     }
 
     /// The items a `use` path names from `from`: its last segment's, in the module the rest walks to.
-    pub fn use_path_items(&self, segs: &[String], from: &Module, seen: &mut HashSet<String>) -> Option<Vec<SymId>> {
+    pub fn use_path_items(
+        &self,
+        segs: &[String],
+        from: &Module,
+        seen: &mut HashSet<String>,
+    ) -> Option<Vec<SymId>> {
         if segs.len() < 2 {
             return None;
         }
@@ -838,10 +931,15 @@ impl<'a> Ctx<'a> {
     pub fn use_items(&self, name: &str, file: &str) -> Option<Rc<HashSet<SymId>>> {
         self.memo(1, format!("{file}\0{name}"), || {
             let uses = self.uses(file);
-            let paths = if uses.balanced { uses.paths.get(name)? } else { return None };
+            let paths = if uses.balanced {
+                uses.paths.get(name)?
+            } else {
+                return None;
+            };
             let mut ids = HashSet::new();
             for p in paths {
-                let items = self.use_path_items(&p.segs, &self.module_at(file, p.at), &mut HashSet::new())?;
+                let items =
+                    self.use_path_items(&p.segs, &self.module_at(file, p.at), &mut HashSet::new())?;
                 ids.extend(items);
             }
             Some(Rc::new(ids))
@@ -855,7 +953,12 @@ impl<'a> Ctx<'a> {
             if !uses.balanced || uses.glob_paths.is_empty() {
                 return None;
             }
-            let items = self.globbed_items(&uses.glob_paths, &|g| self.module_at(file, g.at), name, &mut HashSet::new())?;
+            let items = self.globbed_items(
+                &uses.glob_paths,
+                &|g| self.module_at(file, g.at),
+                name,
+                &mut HashSet::new(),
+            )?;
             Some(Rc::new(items.into_iter().collect()))
         })
     }
@@ -874,19 +977,30 @@ impl<'a> Ctx<'a> {
     }
 
     /// The ids of the items a path names from the module around `at` in `file`.
-    pub fn walked_items(&self, segs: &[String], file: &str, at: Option<usize>) -> Option<Rc<HashSet<SymId>>> {
+    pub fn walked_items(
+        &self,
+        segs: &[String],
+        file: &str,
+        at: Option<usize>,
+    ) -> Option<Rc<HashSet<SymId>>> {
         let from = self.module_at(file, at.unwrap_or(0));
-        self.memo(3, format!("{file}\0{:?}\0{}", from.block, segs.join("::")), || {
-            self.use_path_items(segs, &from, &mut HashSet::new())
-                .map(|v| Rc::new(v.into_iter().collect()))
-        })
+        self.memo(
+            3,
+            format!("{file}\0{:?}\0{}", from.block, segs.join("::")),
+            || {
+                self.use_path_items(segs, &from, &mut HashSet::new())
+                    .map(|v| Rc::new(v.into_iter().collect()))
+            },
+        )
     }
 
     /// Whether a symbol is declared directly in an inline `mod <name> { … }` of its own file.
     pub fn is_in_inline_module(&self, cand: SymId, name: &str) -> bool {
         let file = self.syms.get(cand).file.clone();
         let layout = self.uses(&file);
-        layout.balanced && block_at(&layout.blocks, self.item_offset(cand)).is_some_and(|k| layout.blocks[k].name == name)
+        layout.balanced
+            && block_at(&layout.blocks, self.item_offset(cand))
+                .is_some_and(|k| layout.blocks[k].name == name)
     }
 
     /// Whether `ref`'s file can name this Rust item by its visibility.
@@ -919,8 +1033,14 @@ impl<'a> Ctx<'a> {
         }
         let at = line.as_deref().map_or("", |l| l.get(col..).unwrap_or(""));
         let type_read = r.kind == ReferenceKind::References && is_ident(name);
-        let via_self = type_read && name != "Self" && strip_ws_prefix(at, "Self").is_some_and(|r| r.trim_start().starts_with("::"));
-        if type_read && (via_self || (at.starts_with(name) && !at[name.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_'))) {
+        let via_self = type_read
+            && name != "Self"
+            && strip_ws_prefix(at, "Self").is_some_and(|r| r.trim_start().starts_with("::"));
+        if type_read
+            && (via_self
+                || (at.starts_with(name)
+                    && !at[name.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_')))
+        {
             if let Some(variant) = variant_after(at) {
                 if !self.declares_variant(cand, &variant) {
                     return false;
@@ -961,10 +1081,13 @@ impl<'a> Ctx<'a> {
                 if qself == "Self" {
                     return self.is_in_enclosing_impl(cand, r);
                 }
-                if self.is_generic_param(&qself, r) || c.qualified_name != format!("{qself}::{}", c.name) {
+                if self.is_generic_param(&qself, r)
+                    || c.qualified_name != format!("{qself}::{}", c.name)
+                {
                     return false;
                 }
-                return trait_.is_none_or(|t| self.trait_impl_header(cand).is_some_and(|h| h.trait_ == t));
+                return trait_
+                    .is_none_or(|t| self.trait_impl_header(cand).is_some_and(|h| h.trait_ == t));
             }
             let g = self.graph();
             let path_uses = self.uses(r.file);
@@ -974,7 +1097,10 @@ impl<'a> Ctx<'a> {
             {
                 return false;
             }
-            if seg.is_empty() || matches!(seg.as_str(), "crate" | "self" | "super" | "Self") || g.project.contains(&seg) {
+            if seg.is_empty()
+                || matches!(seg.as_str(), "crate" | "self" | "super" | "Self")
+                || g.project.contains(&seg)
+            {
                 return true;
             }
             if path_uses.external.contains(&seg) && !path_uses.bound.contains(&seg) {
@@ -999,18 +1125,29 @@ impl<'a> Ctx<'a> {
             }
             let uses = self.uses(r.file);
             let owner = c.owner().and_then(|o| o.rsplit("::").next()).unwrap_or("");
-            return (!owner.is_empty() && uses.globs.contains(owner)) || (uses.names.contains(name) && uses.names.contains(owner));
+            return (!owner.is_empty() && uses.globs.contains(owner))
+                || (uses.names.contains(name) && uses.names.contains(owner));
         }
         if c.file == r.file {
             return true;
         }
         let uses = self.uses(r.file);
-        let from = if MODULE_ITEM_KINDS.contains(&c.kind) { uses.bound_from.get(name) } else { None };
+        let from = if MODULE_ITEM_KINDS.contains(&c.kind) {
+            uses.bound_from.get(name)
+        } else {
+            None
+        };
         if let Some(from) = from {
-            if !self.graph().use_can_reach(from.iter().map(String::as_str), &c.file, r.file) {
+            if !self
+                .graph()
+                .use_can_reach(from.iter().map(String::as_str), &c.file, r.file)
+            {
                 return false;
             }
-            if self.use_items(name, r.file).is_some_and(|ids| !ids.contains(&cand)) {
+            if self
+                .use_items(name, r.file)
+                .is_some_and(|ids| !ids.contains(&cand))
+            {
                 return false;
             }
         }
@@ -1025,9 +1162,14 @@ impl<'a> Ctx<'a> {
             }
         }
         if !PRELUDE.contains(&name) {
-            if matches!(c.kind, NodeKind::Method | NodeKind::Property | NodeKind::Field | NodeKind::EnumMember)
-                || r.kind == ReferenceKind::Imports
-                || matches!(c.kind, NodeKind::File | NodeKind::Module | NodeKind::Namespace)
+            if matches!(
+                c.kind,
+                NodeKind::Method | NodeKind::Property | NodeKind::Field | NodeKind::EnumMember
+            ) || r.kind == ReferenceKind::Imports
+                || matches!(
+                    c.kind,
+                    NodeKind::File | NodeKind::Module | NodeKind::Namespace
+                )
             {
                 return true;
             }
@@ -1051,12 +1193,13 @@ impl<'a> Ctx<'a> {
 
     /// The line of the `impl` / `trait` header at or above `line` of `file` (0 for none).
     pub fn impl_line_at(&self, file: &str, line: u32) -> u32 {
-        let Some(src) = self.source(file) else { return 0 };
-        let lines: Vec<&str> = src.lines().collect();
-        let mut i = (line as usize).min(lines.len());
+        let Some(src) = self.source(file) else {
+            return 0;
+        };
+        let mut i = (line as usize).min(src.line_count());
         while i > 0 {
             i -= 1;
-            if is_impl_or_trait_line(lines[i]) {
+            if is_impl_or_trait_line(src.line0(i).unwrap_or("")) {
                 return i as u32 + 1;
             }
         }
@@ -1079,14 +1222,15 @@ impl<'a> Ctx<'a> {
         if !name.starts_with(|c: char| c.is_ascii_uppercase()) || !is_ident(name) {
             return false;
         }
-        let Some(src) = self.source(r.file) else { return false };
-        let lines: Vec<&str> = src.lines().collect();
+        let Some(src) = self.source(r.file) else {
+            return false;
+        };
         let from = (self.enclosing_impl_line(r) as usize).saturating_sub(1);
-        let to = (r.line as usize).min(lines.len());
+        let to = (r.line as usize).min(src.line_count());
         if from >= to {
             return false;
         }
-        let text = lines[from..to].join("\n");
+        let text = src.lines_in(from, to).collect::<Vec<_>>().join("\n");
         generic_list_declares(&text, name)
     }
 }
@@ -1151,7 +1295,9 @@ fn variant_after(at: &str) -> Option<String> {
     if !rest.starts_with(|c: char| c.is_ascii_uppercase()) {
         return None;
     }
-    let e = rest.find(|c: char| !(c.is_alphanumeric() || c == '_')).unwrap_or(rest.len());
+    let e = rest
+        .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .unwrap_or(rest.len());
     Some(rest[..e].to_string())
 }
 
@@ -1161,8 +1307,10 @@ pub fn find_word(text: &str, name: &str) -> Option<usize> {
     while let Some(i) = text[from..].find(name) {
         let at = from + i;
         from = at + 1;
-        let before_ok = at == 0 || !text[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '$');
-        let after_ok = !text[at + name.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_');
+        let before_ok =
+            at == 0 || !text[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '$');
+        let after_ok =
+            !text[at + name.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_');
         if before_ok && after_ok {
             return Some(at);
         }
@@ -1175,7 +1323,8 @@ pub fn find_word(text: &str, name: &str) -> Option<usize> {
 /// writes `seg::name` when it never writes `name` bare.
 fn written_path(line: &str, col: usize, name: &str) -> Option<(String, String)> {
     let before_col = line.get(..col)?;
-    if line.get(col..).is_some_and(|t| t.starts_with(name)) && before_col.trim_end().ends_with("::") {
+    if line.get(col..).is_some_and(|t| t.starts_with(name)) && before_col.trim_end().ends_with("::")
+    {
         return path_before(before_col);
     }
     // A bare occurrence (not after a word char, `$` or `:`) means no path.
@@ -1185,8 +1334,11 @@ fn written_path(line: &str, col: usize, name: &str) -> Option<(String, String)> 
         let at = from + i;
         from = at + 1;
         let before = &line[..at];
-        let after_ok = !line[at + name.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_');
-        if after_ok && !before.ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '$' || c == ':') {
+        let after_ok =
+            !line[at + name.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_');
+        if after_ok
+            && !before.ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '$' || c == ':')
+        {
             bare = true;
             break;
         }
@@ -1248,9 +1400,12 @@ fn path_before(text: &str) -> Option<(String, String)> {
 
 /// Whether `name` at `column` of `line` is a trait's associated type bound in its arguments.
 fn is_assoc_binding(line: &str, column: usize, name: &str) -> bool {
-    let Some(after) = line.get(column..).and_then(|t| t.strip_prefix(name)) else { return false };
+    let Some(after) = line.get(column..).and_then(|t| t.strip_prefix(name)) else {
+        return false;
+    };
     let a = after.trim_start();
-    let binds = (a.starts_with('=') && !a.starts_with("==") && !a.starts_with("=>")) || (a.starts_with(':') && !a.starts_with("::"));
+    let binds = (a.starts_with('=') && !a.starts_with("==") && !a.starts_with("=>"))
+        || (a.starts_with(':') && !a.starts_with("::"));
     if !binds {
         return false;
     }
@@ -1315,7 +1470,10 @@ pub fn qualified_self(before: &str) -> Option<(String, Option<String>)> {
             if let Some(r) = p.strip_prefix('&') {
                 p = r.trim_start();
                 if p.starts_with('\'') {
-                    p = p.split_once(char::is_whitespace).map_or("", |(_, r)| r).trim_start();
+                    p = p
+                        .split_once(char::is_whitespace)
+                        .map_or("", |(_, r)| r)
+                        .trim_start();
                 }
                 if let Some(r) = p.strip_prefix("mut ") {
                     p = r.trim_start();
@@ -1332,7 +1490,10 @@ pub fn qualified_self(before: &str) -> Option<(String, Option<String>)> {
         p.rsplit("::").next().unwrap_or(p).trim().to_string()
     };
     let (s, t) = match find_word(inner, "as") {
-        Some(i) => (head(&inner[..i]), Some(head(&inner[i + 2..])).filter(|t| !t.is_empty())),
+        Some(i) => (
+            head(&inner[..i]),
+            Some(head(&inner[i + 2..])).filter(|t| !t.is_empty()),
+        ),
         None => (head(inner), None),
     };
     (!s.is_empty() && is_ident(&s)).then_some((s, t))
@@ -1385,14 +1546,24 @@ mod tests {
             .iter()
             .map(|(p, l)| format!("{}={}", p.join("::"), l.clone().unwrap_or("*".into())))
             .collect();
-        assert_eq!(s, vec!["crate::sync::watch=watch", "crate::sync::watch::Receiver=Rx", "crate::sync=*"]);
+        assert_eq!(
+            s,
+            vec![
+                "crate::sync::watch=watch",
+                "crate::sync::watch::Receiver=Rx",
+                "crate::sync=*"
+            ]
+        );
         let b = use_tree_bindings(" std::io::{self, Read}");
         assert_eq!(b.len(), 2);
     }
 
     #[test]
     fn reads_paths_and_qualified_selves() {
-        assert_eq!(written_path("pub fn f(p: &ast::Pattern)", 18, "Pattern"), Some(("".into(), "ast".into())));
+        assert_eq!(
+            written_path("pub fn f(p: &ast::Pattern)", 18, "Pattern"),
+            Some(("".into(), "ast".into()))
+        );
         assert_eq!(
             written_path("x: std::io::Error", 12, "Error"),
             Some(("std".into(), "io".into()))
@@ -1405,13 +1576,22 @@ mod tests {
         assert_eq!(qualified_self("Vec::<T>::"), None);
         assert!(is_assoc_binding("impl Iterator<Item = &str>", 14, "Item"));
         assert!(!is_assoc_binding("enum Item<T> {", 5, "Item"));
-        assert!(generic_list_declares("pub fn handle<L: Listener>(io: <L as Listener>::Io) {}", "L"));
-        assert!(!generic_list_declares("pub fn ready(io: <Ready as Listener>::Io) {}", "Ready"));
+        assert!(generic_list_declares(
+            "pub fn handle<L: Listener>(io: <L as Listener>::Io) {}",
+            "L"
+        ));
+        assert!(!generic_list_declares(
+            "pub fn ready(io: <Ready as Listener>::Io) {}",
+            "Ready"
+        ));
     }
 
     #[test]
     fn module_paths() {
-        assert_eq!(module_path("crates/cli/src/net/config.rs"), vec!["net", "config"]);
+        assert_eq!(
+            module_path("crates/cli/src/net/config.rs"),
+            vec!["net", "config"]
+        );
         assert_eq!(module_path("src/lib.rs"), Vec::<String>::new());
         assert_eq!(module_name("src/walk/mod.rs"), "walk");
         assert_eq!(module_dir("src/net.rs"), "src/net");

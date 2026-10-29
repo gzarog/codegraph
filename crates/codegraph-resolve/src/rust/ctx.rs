@@ -11,6 +11,43 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
 
+/// A file's text and where each of its lines starts.
+pub struct Source {
+    pub text: String,
+    starts: Vec<usize>,
+}
+
+impl Source {
+    fn new(text: String) -> Source {
+        let mut starts = vec![0];
+        starts.extend(text.match_indices('\n').map(|(i, _)| i + 1));
+        Source { text, starts }
+    }
+
+    pub fn line_count(&self) -> usize {
+        if self.text.ends_with('\n') {
+            self.starts.len() - 1
+        } else {
+            self.starts.len()
+        }
+    }
+
+    /// The 0-based line `i`, without its line break.
+    pub fn line0(&self, i: usize) -> Option<&str> {
+        if i >= self.line_count() {
+            return None;
+        }
+        let start = self.starts[i];
+        let end = self.starts.get(i + 1).map_or(self.text.len(), |e| e - 1);
+        Some(self.text[start..end].trim_end_matches('\r'))
+    }
+
+    /// Lines `from..to` (0-based), each without its line break.
+    pub fn lines_in(&self, from: usize, to: usize) -> impl Iterator<Item = &str> {
+        (from..to.min(self.line_count())).filter_map(move |i| self.line0(i))
+    }
+}
+
 /// The reference being resolved.
 #[derive(Debug, Clone)]
 pub struct Ref<'r> {
@@ -24,19 +61,25 @@ pub struct Ref<'r> {
 
 impl<'r> Ref<'r> {
     pub fn with_name(&self, name: &'r str) -> Ref<'r> {
-        Ref { name, ..self.clone() }
+        Ref {
+            name,
+            ..self.clone()
+        }
     }
 }
+
+/// Answers keyed by a family of question and its text.
+pub type Memo = RefCell<HashMap<(u8, String), Option<Rc<dyn std::any::Any>>>>;
 
 pub struct Ctx<'a> {
     pub syms: &'a Symbols,
     pub root: &'a Path,
-    sources: RefCell<HashMap<String, Option<Rc<String>>>>,
+    sources: RefCell<HashMap<String, Option<Rc<Source>>>>,
     scopes: RefCell<HashMap<String, Option<Rc<Scopes>>>>,
     uses: RefCell<HashMap<String, Rc<Uses>>>,
     graph: OnceCell<CrateGraph>,
     /// Memos keyed by text, per family of question.
-    pub memo: RefCell<HashMap<(u8, String), Option<Rc<dyn std::any::Any>>>>,
+    pub memo: Memo,
     /// Refs resolved through a typed receiver: a trait's own (private-looking) method is in reach.
     pub typed: RefCell<std::collections::HashSet<(SymId, u32, u32)>>,
 }
@@ -60,11 +103,13 @@ impl<'a> Ctx<'a> {
     }
 
     /// A file's text, as read from disk.
-    pub fn source(&self, file: &str) -> Option<Rc<String>> {
+    pub fn source(&self, file: &str) -> Option<Rc<Source>> {
         if let Some(s) = self.sources.borrow().get(file) {
             return s.clone();
         }
-        let s = std::fs::read_to_string(self.root.join(file)).ok().map(Rc::new);
+        let s = std::fs::read_to_string(self.root.join(file))
+            .ok()
+            .map(|t| Rc::new(Source::new(t)));
         let mut map = self.sources.borrow_mut();
         if map.len() > 512 {
             map.clear();
@@ -82,7 +127,9 @@ impl<'a> Ctx<'a> {
         if let Some(s) = self.scopes.borrow().get(file) {
             return s.clone();
         }
-        let s = self.source(file).map(|src| Rc::new(Scopes::read(&src)));
+        let s = self
+            .source(file)
+            .map(|src| Rc::new(Scopes::read(&src.text)));
         let mut map = self.scopes.borrow_mut();
         if map.len() > 256 {
             map.clear();
@@ -103,13 +150,15 @@ impl<'a> Ctx<'a> {
     /// The 1-based lines of a file.
     pub fn line(&self, file: &str, line: u32) -> Option<String> {
         let src = self.source(file)?;
-        src.lines().nth((line as usize).checked_sub(1)?).map(str::to_string)
+        src.line0((line as usize).checked_sub(1)?)
+            .map(str::to_string)
     }
 
     /// Where a symbol starts in its file, as an offset into its scopes' text.
     pub fn node_offset(&self, id: SymId) -> usize {
         let s = self.syms.get(id);
-        self.scopes(&s.file).map_or(0, |sc| sc.offset(s.start_line, s.start_column))
+        self.scopes(&s.file)
+            .map_or(0, |sc| sc.offset(s.start_line, s.start_column))
     }
 
     /// The offset of a reference in its file's text.
@@ -136,7 +185,8 @@ impl<'a> Ctx<'a> {
 
     /// Whether a Rust item of one of `kinds` is named `name` in the project.
     pub fn is_project_named(&self, name: &str, kinds: &[NodeKind]) -> bool {
-        self.rust_named(name).any(|i| kinds.contains(&self.syms.get(i).kind))
+        self.rust_named(name)
+            .any(|i| kinds.contains(&self.syms.get(i).kind))
     }
 
     /// Memoised `f`, by family and key.
