@@ -740,7 +740,7 @@ fn match_method_call(ctx: &Ctx, r: &Ref) -> Option<Match> {
             if !ctx.named(&t).iter().any(|&n| is_method_owner_kind(ctx, n)) {
                 match infer::type_parameter_bound(ctx, &t, r) {
                     Bound::Unbounded => return None,
-                    Bound::Bound(b) => inferred = Some(b),
+                    Bound::Named(b) => inferred = Some(b),
                     Bound::NotAParameter => {}
                 }
             }
@@ -1145,10 +1145,7 @@ fn gate_type_parameter(ctx: &Ctx, m: Option<Match>, r: &Ref) -> Option<Match> {
         return Some(m);
     }
     for d in cpp_resolve::enclosing_declarations(ctx, &r.file, r.line) {
-        if declared_type_parameters(ctx, d)
-            .iter()
-            .any(|p| *p == r.name)
-        {
+        if declared_type_parameters(ctx, d).contains(&r.name) {
             return None;
         }
     }

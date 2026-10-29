@@ -41,7 +41,7 @@ fn as_decimal(x: f32) -> f64 {
 
 fn to_edge(r: &UnresolvedReference, syms: &Symbols, m: &matcher::Match) -> (Edge, String) {
     let target = syms.get(m.target);
-    let mut edge = Edge::new(&r.from_node_id, &target.id, edge_kind(r, target));
+    let mut edge = Edge::new(&r.from_node_id, &target.id, edge_kind(r, syms, target));
     edge.line = Some(r.line);
     edge.column = Some(r.column);
     let mut meta = serde_json::json!({
@@ -61,11 +61,23 @@ fn to_edge(r: &UnresolvedReference, syms: &Symbols, m: &matcher::Match) -> (Edge
     (edge, target.file.clone())
 }
 
-/// The edge a resolved reference makes: a call whose target is a type is a
+/// The edge a resolved reference makes: `extends` an interface is `implements`; a call whose target is a type is a
 /// Go conversion or a Pascal typecast (a reference), else an instantiation.
-fn edge_kind(r: &UnresolvedReference, target: &symbols::Sym) -> codegraph_core::EdgeKind {
+fn edge_kind(
+    r: &UnresolvedReference,
+    syms: &Symbols,
+    target: &symbols::Sym,
+) -> codegraph_core::EdgeKind {
     use codegraph_core::{EdgeKind, Language, NodeKind};
     let kind = r.reference_kind.edge_kind();
+    // A class or struct extending an interface implements it.
+    if kind == EdgeKind::Extends && matches!(target.kind, NodeKind::Interface | NodeKind::Protocol)
+    {
+        let source = syms.by_id(&r.from_node_id).map(|s| syms.get(s).kind);
+        if source.is_some_and(|k| !matches!(k, NodeKind::Interface | NodeKind::Protocol)) {
+            return EdgeKind::Implements;
+        }
+    }
     if kind != EdgeKind::Calls {
         return kind;
     }

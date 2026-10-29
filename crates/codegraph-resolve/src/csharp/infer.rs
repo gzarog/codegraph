@@ -39,11 +39,7 @@ const NON_TYPE_RECEIVER_TOKENS: &[&str] = &[
 pub fn normalize_inferred_type_name(ctx: &Ctx, raw: &str) -> Option<String> {
     let cleaned = js::replace_with(&ctx.re(r"<[^>]*>"), raw, "");
     let cleaned = cleaned.replace(['&', '*'], "");
-    let seg = cleaned
-        .trim()
-        .split(['.', ':'])
-        .filter(|s| !s.is_empty())
-        .last()?;
+    let seg = cleaned.trim().split(['.', ':']).rfind(|s| !s.is_empty())?;
     (!NON_TYPE_RECEIVER_TOKENS.contains(&seg)).then(|| seg.to_string())
 }
 
@@ -240,7 +236,7 @@ fn member_type_through_hierarchy(ctx: &Ctx, cls: SymId, name: &str) -> Option<St
                 return Some(match type_parameter_bound_in(ctx, &found, &[ty]) {
                     Bound::NotAParameter => found,
                     Bound::Unbounded => "object".to_string(),
-                    Bound::Bound(b) => b,
+                    Bound::Named(b) => b,
                 });
             }
             let lang = ctx.sym(ty).language;
@@ -487,7 +483,7 @@ pub enum Bound {
     NotAParameter,
     /// `null`: a type parameter with no named bound.
     Unbounded,
-    Bound(String),
+    Named(String),
 }
 
 /// `typeParameterBound`: what a type parameter of the class or method around the call is bounded by.
@@ -540,7 +536,7 @@ fn type_parameter_bound_in(ctx: &Ctx, type_name: &str, decls: &[SymId]) -> Bound
         })
         .map(|c| js::group(&c, 1).to_string());
         if let Some(b) = bound {
-            return Bound::Bound(b.rsplit('.').next().unwrap_or(&b).to_string());
+            return Bound::Named(b.rsplit('.').next().unwrap_or(&b).to_string());
         }
         if js::test(
             &ctx.re(&format!(r"[<,]\s*(?:in\s+|out\s+|reified\s+)?{t}\s*[,>]")),
