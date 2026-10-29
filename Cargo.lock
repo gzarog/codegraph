@@ -280,6 +280,7 @@ dependencies = [
  "codegraph-extract",
  "codegraph-frameworks",
  "codegraph-store",
+ "globset",
  "ignore",
  "regex",
  "serde_json",

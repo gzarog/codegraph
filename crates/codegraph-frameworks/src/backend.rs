@@ -464,39 +464,63 @@ pub fn go_routes(file: &str, lang: Language, safe: &str, routes: &mut Routes) {
 
 // ------------------------------------------------------------------- Rust
 
-static AXUM_ROUTE: LazyLock<Regex> = LazyLock::new(|| re(r#"\.route\s*\(\s*"([^"]*)"\s*,"#));
-static AXUM_METHOD: LazyLock<Regex> =
-    LazyLock::new(|| re(r"\b(get|post|put|patch|delete|head|options|any)\s*\(\s*([\w:]+)\s*\)"));
 static RUST_ATTR_ROUTE: LazyLock<Regex> = LazyLock::new(|| {
     re(r#"#\[(?:\w+::)?(get|post|put|patch|delete|head|options)\s*\(\s*"([^"]*)""#)
 });
+static AXUM_ROUTE_PATH: LazyLock<Regex> = LazyLock::new(|| re(r#"^\s*"([^"]+)"\s*,"#));
+static AXUM_METHOD: LazyLock<Regex> = LazyLock::new(|| {
+    re(r"\b(get|post|put|patch|delete|head|options|trace)\s*\(\s*([A-Za-z_][\w:]*)")
+});
 static ACTIX_RESOURCE: LazyLock<Regex> =
-    LazyLock::new(|| re(r#"web::resource\s*\(\s*"([^"]*)"\s*\)"#));
-static ACTIX_TO: LazyLock<Regex> =
-    LazyLock::new(|| re(r"web::(get|post|put|patch|delete)\s*\(\s*\)\s*\.to\s*\(\s*([\w:]+)\s*\)"));
+    LazyLock::new(|| re(r#"web::resource\s*\(\s*"([^"]+)"\s*\)"#));
+static ACTIX_TO: LazyLock<Regex> = LazyLock::new(|| {
+    re(r"web::(get|post|put|patch|delete|head)\s*\(\s*\)\s*\.to\s*\(\s*([A-Za-z_][\w:]*)")
+});
+static ACTIX_DIRECT_TO: LazyLock<Regex> =
+    LazyLock::new(|| re(r"^\s*\.to\s*\(\s*([A-Za-z_][\w:]*)"));
+static ACTIX_APP_ROUTE: LazyLock<Regex> = LazyLock::new(|| {
+    re(
+        r#"\.route\s*\(\s*"([^"]+)"\s*,\s*web::(get|post|put|patch|delete|head)\s*\(\s*\)\s*\.to\s*\(\s*([A-Za-z_][\w:]*)"#,
+    )
+});
 
+/// The `)` matching the `(` at `open`, counting parentheses only.
+fn paren_close(b: &[u8], open: usize) -> Option<usize> {
+    let mut depth = 0;
+    for (i, &c) in b.iter().enumerate().skip(open) {
+        if c == b'(' {
+            depth += 1;
+        } else if c == b')' {
+            depth -= 1;
+            if depth == 0 {
+                return Some(i);
+            }
+        }
+    }
+    None
+}
+
+/// Axum's `.route("/p", get(h).post(h2))`, Actix's `#[get("/p")]`,
+/// `web::resource("/p").route(web::get().to(h))` and `.route("/p", web::get().to(h))`.
+/// A route's handler reference sits where its handler is written: rustfmt
+/// wraps a long `.route(` call, and the scope gate reads the handler's line.
 pub fn rust_routes(file: &str, lang: Language, safe: &str, routes: &mut Routes) {
     let lines = Lines::new(safe);
     let b = safe.as_bytes();
-    for c in AXUM_ROUTE.captures_iter(safe) {
-        let m = c.get(0).unwrap();
-        let open = m.start() + safe[m.start()..].find('(').unwrap();
-        let Some(close) = matching(b, open) else {
-            continue;
-        };
-        let body = &safe[open + 1..close];
-        let line = lines.line(m.start());
-        for h in AXUM_METHOD.captures_iter(body) {
-            let id = routes.route(
-                file,
-                lang,
-                "axum",
-                &format!("{} {}", h[1].to_uppercase(), &c[1]),
-                line,
-            );
-            routes.handler(&id, &h[2], ReferenceKind::References, line);
-        }
-    }
+    // Line and column of `handler` in the expression `expr` that ends at `expr_end`.
+    let site = |expr_end: usize, expr: &str, handler: &str| -> (u32, u32) {
+        let offset = expr_end - expr.len() + expr.rfind(handler).unwrap_or(0);
+        let line = lines.line(offset);
+        let line_start = safe[..offset].rfind('\n').map_or(0, |i| i + 1);
+        (line, (offset - line_start) as u32)
+    };
+    let last_segment = |expr: &str| {
+        expr.split("::")
+            .filter(|s| !s.is_empty())
+            .last()
+            .map(str::to_string)
+    };
+
     for c in RUST_ATTR_ROUTE.captures_iter(safe) {
         let m = c.get(0).unwrap();
         let line = lines.line(m.start());
@@ -511,21 +535,125 @@ pub fn rust_routes(file: &str, lang: Language, safe: &str, routes: &mut Routes) 
             routes.handler(&id, &h, ReferenceKind::References, line);
         }
     }
-    for c in ACTIX_RESOURCE.captures_iter(safe) {
-        let m = c.get(0).unwrap();
-        let tail = &safe[m.end()..(m.end() + 400).min(safe.len())];
-        let end = tail.find(";").unwrap_or(tail.len());
-        let line = lines.line(m.start());
-        for t in ACTIX_TO.captures_iter(&tail[..end]) {
+
+    let mut from = 0;
+    while let Some(i) = safe[from..].find(".route").map(|i| from + i) {
+        from = i + 6;
+        let rest = &safe[i + 6..];
+        let open = i + 6 + (rest.len() - rest.trim_start().len());
+        if b.get(open) != Some(&b'(') {
+            continue;
+        }
+        let Some(close) = paren_close(b, open) else {
+            continue;
+        };
+        let args = &safe[open + 1..close];
+        let Some(path) = AXUM_ROUTE_PATH.captures(args) else {
+            continue;
+        };
+        let route_path = path[1].to_string();
+        let line = lines.line(i);
+        let body_at = open + 1 + path[0].len();
+        let body = &args[path[0].len()..];
+        let bb = body.as_bytes();
+        let mut depth = 0i32;
+        let mut scanned = 0;
+        for mh in AXUM_METHOD.captures_iter(body) {
+            let m = mh.get(0).unwrap();
+            while scanned < m.start() {
+                match bb[scanned] {
+                    b'(' => depth += 1,
+                    b')' => depth -= 1,
+                    _ => {}
+                }
+                scanned += 1;
+            }
+            // A call inside a closure handler's body is no method router.
+            if depth > 0 {
+                continue;
+            }
+            let expr = &mh[2];
+            let Some(handler) = last_segment(expr) else {
+                continue;
+            };
+            let (hl, hc) = site(body_at + m.end(), expr, &handler);
             let id = routes.route(
                 file,
                 lang,
-                "actix",
-                &format!("{} {}", t[1].to_uppercase(), &c[1]),
+                "axum",
+                &format!("{} {route_path}", mh[1].to_uppercase()),
                 line,
             );
-            routes.handler(&id, &t[2], ReferenceKind::References, line);
+            routes.handler_at(&id, &handler, ReferenceKind::References, hl, hc);
         }
+    }
+
+    let push_actix = |routes: &mut Routes,
+                      route_path: &str,
+                      method: &str,
+                      expr: &str,
+                      line: u32,
+                      expr_end: usize| {
+        let Some(handler) = last_segment(expr) else {
+            return;
+        };
+        let (hl, hc) = site(expr_end, expr, &handler);
+        let id = routes.route(
+            file,
+            lang,
+            "actix",
+            &format!("{} {route_path}", method.to_uppercase()),
+            line,
+        );
+        routes.handler_at(&id, &handler, ReferenceKind::References, hl, hc);
+    };
+    for c in ACTIX_RESOURCE.captures_iter(safe) {
+        let m = c.get(0).unwrap();
+        let start_line = lines.line(m.start());
+        let after = m.end();
+        let next = safe[after..]
+            .find("web::resource")
+            .map_or(safe.len(), |n| after + n);
+        let mut end = (after + 500).min(next).min(safe.len());
+        // The resource's own chain ends where the call it is an argument of closes.
+        let mut depth = 0i32;
+        for (k, &c) in b.iter().enumerate().take(end).skip(after) {
+            match c {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth < 0 {
+                        end = k;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let chain = &safe[after..end];
+        let mut found = false;
+        for t in ACTIX_TO.captures_iter(chain) {
+            let tm = t.get(0).unwrap();
+            let m_line = start_line + chain[..tm.start()].matches('\n').count() as u32;
+            push_actix(routes, &c[1], &t[1], &t[2], m_line, after + tm.end());
+            found = true;
+        }
+        if !found {
+            if let Some(d) = ACTIX_DIRECT_TO.captures(chain) {
+                push_actix(
+                    routes,
+                    &c[1],
+                    "ANY",
+                    &d[1],
+                    start_line,
+                    after + d.get(0).unwrap().end(),
+                );
+            }
+        }
+    }
+    for c in ACTIX_APP_ROUTE.captures_iter(safe) {
+        let m = c.get(0).unwrap();
+        push_actix(routes, &c[1], &c[2], &c[3], lines.line(m.start()), m.end());
     }
 }
 
@@ -935,8 +1063,8 @@ mod tests {
         assert_eq!(names(&r), vec!["GET /v1/ping", "GET /items/{id}"]);
         let mut r = Routes::default();
         rust_routes("m.rs", Language::Rust, "Router::new().route(\"/users\", get(list_users).post(create_user));\n#[get(\"/health\")]\nasync fn health() -> &'static str { \"ok\" }\n", &mut r);
-        assert_eq!(names(&r), vec!["GET /users", "POST /users", "GET /health"]);
-        assert_eq!(refs(&r), vec!["list_users", "create_user", "health"]);
+        assert_eq!(names(&r), vec!["GET /health", "GET /users", "POST /users"]);
+        assert_eq!(refs(&r), vec!["health", "list_users", "create_user"]);
         let mut r = Routes::default();
         php_routes("web.php", Language::Php, "<?php\nRoute::get('/posts', [PostController::class, 'index']);\nRoute::post('/x', 'App\\Http\\XController@store');\nRoute::apiResource('photos', PhotoController::class);\n", &mut r);
         assert_eq!(&names(&r)[..2], &["GET /posts", "POST /x"]);

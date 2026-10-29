@@ -9,6 +9,7 @@ license.workspace = true
 codegraph-core.workspace = true
 codegraph-frameworks.workspace = true
 codegraph-store.workspace = true
+globset.workspace = true
 ignore.workspace = true
 regex.workspace = true
 serde_json.workspace = true
