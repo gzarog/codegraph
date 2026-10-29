@@ -5,6 +5,7 @@ pub mod dispatch;
 pub mod imports;
 pub mod matcher;
 pub mod modules;
+pub mod rust;
 pub mod symbols;
 pub mod synth;
 
@@ -35,7 +36,11 @@ fn to_edge(r: &UnresolvedReference, syms: &Symbols, m: &matcher::Match) -> (Edge
     let mut edge = Edge::new(&r.from_node_id, &target.id, r.reference_kind.edge_kind());
     edge.line = Some(r.line);
     edge.column = Some(r.column);
-    let mut meta = serde_json::json!({ "resolvedBy": m.strategy, "confidence": m.confidence });
+    let mut meta = serde_json::json!({
+        "resolvedBy": m.strategy,
+        "confidence": m.confidence,
+        "refName": r.reference_name,
+    });
     if r.reference_kind == ReferenceKind::FunctionRef {
         meta["functionRef"] = serde_json::Value::Bool(true);
     }
@@ -99,8 +104,9 @@ pub fn resolve_pending(
         let mut new_supers = Vec::new();
         {
             let mut matcher = Matcher::new(&syms, &modules, root);
+            let rust = rust::Ctx::new(&syms, root);
             for r in &supers {
-                match resolve_one(&mut matcher, &syms, r) {
+                match resolve_one(&mut matcher, &rust, &syms, r) {
                     Some(m) => {
                         if let Some(from) = syms.by_id(&r.from_node_id) {
                             new_supers.push((from, m.target));
@@ -119,11 +125,12 @@ pub fn resolve_pending(
     progress(supers.len(), total);
 
     let mut matcher = Matcher::new(&syms, &modules, root);
+    let rust = rust::Ctx::new(&syms, root);
     for (i, r) in rest.iter().enumerate() {
         let handler = dispatch::bind_handler(r);
         let m = match handler {
-            Some(h) => resolve_named(&mut matcher, &syms, r, ReferenceKind::References, h),
-            None => resolve_one(&mut matcher, &syms, r),
+            Some(h) => resolve_named(&mut matcher, &rust, &syms, r, ReferenceKind::References, h),
+            None => resolve_one(&mut matcher, &rust, &syms, r),
         };
         match m {
             Some(m) => {
@@ -177,14 +184,16 @@ pub fn resolve_pending(
 
 fn resolve_one(
     matcher: &mut Matcher<'_>,
+    rust: &rust::Ctx<'_>,
     syms: &Symbols,
     r: &UnresolvedReference,
 ) -> Option<matcher::Match> {
-    resolve_named(matcher, syms, r, r.reference_kind, &r.reference_name)
+    resolve_named(matcher, rust, syms, r, r.reference_kind, &r.reference_name)
 }
 
 fn resolve_named(
     matcher: &mut Matcher<'_>,
+    rust: &rust::Ctx<'_>,
     syms: &Symbols,
     r: &UnresolvedReference,
     kind: ReferenceKind,
@@ -196,7 +205,19 @@ fn resolve_named(
         .clone()
         .unwrap_or_else(|| syms.get(from).file.clone());
     let lang = r.language.unwrap_or(syms.get(from).language);
-    let m = matcher.resolve(from, &file, lang, kind, name)?;
+    let m = if lang == codegraph_core::Language::Rust {
+        let rr = rust::Ref {
+            from,
+            file: &file,
+            line: r.line,
+            column: r.column,
+            name,
+            kind,
+        };
+        rust.resolve(&rr, &mut |n| matcher.resolve(from, &file, lang, kind, n))?
+    } else {
+        matcher.resolve(from, &file, lang, kind, name)?
+    };
     // Import refs come from the file node; everything else must not point at a file.
     if r.reference_kind != ReferenceKind::Imports
         && syms.get(m.target).kind == codegraph_core::NodeKind::File

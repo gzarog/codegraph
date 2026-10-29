@@ -22,6 +22,10 @@ pub struct Sym {
     pub statement: Option<String>,
     /// Declared inside a function/method body: visible only there.
     pub local: bool,
+    pub start_column: u32,
+    pub visibility: Option<codegraph_core::Visibility>,
+    /// A callable's signature (`(&self, x: u8) -> Out`).
+    pub signature: Option<String>,
 }
 
 impl Sym {
@@ -149,11 +153,18 @@ impl Symbols {
             start_line: n.start_line,
             end_line: n.end_line,
             statement: if n.kind == NodeKind::Import {
-                n.signature
+                n.signature.clone()
             } else {
                 None
             },
             local: false,
+            start_column: n.start_column,
+            visibility: n.visibility,
+            signature: if n.kind == NodeKind::Import {
+                None
+            } else {
+                n.signature
+            },
         });
     }
 

@@ -39,7 +39,7 @@ impl Match {
 }
 
 /// What a reference of `kind` may point at.
-fn kind_accepts(kind: ReferenceKind, target: NodeKind) -> bool {
+pub(crate) fn kind_accepts(kind: ReferenceKind, target: NodeKind) -> bool {
     use NodeKind as N;
     use ReferenceKind as R;
     if matches!(target, N::File | N::Import | N::Parameter | N::Export) {
