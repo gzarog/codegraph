@@ -24,7 +24,7 @@ pub struct Match {
 }
 
 impl Match {
-    fn new(target: SymId, strategy: &'static str, confidence: f32) -> Self {
+    pub(crate) fn new(target: SymId, strategy: &'static str, confidence: f32) -> Self {
         Match {
             target,
             strategy,

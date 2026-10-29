@@ -1,6 +1,7 @@
 //! Cross-file reference resolution: turns the references extraction found
 //! into edges between symbols.
 
+pub mod cpp;
 pub mod dispatch;
 pub mod imports;
 pub mod matcher;

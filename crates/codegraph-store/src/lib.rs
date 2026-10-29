@@ -604,7 +604,7 @@ impl Store {
     }
 
     pub fn all_nodes(&self) -> Result<Vec<Node>> {
-        self.query_nodes("1 = 1 ORDER BY file_path, start_line", &[])
+        self.query_nodes("1 = 1 ORDER BY file_path, start_line, id", &[])
     }
 
     pub fn node_count(&self) -> Result<u64> {

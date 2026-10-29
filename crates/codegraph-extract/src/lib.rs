@@ -64,6 +64,11 @@ pub(crate) fn note_parse_errors() {
 }
 
 pub use ccpp::preparse::pass_by_name as ccpp_preparse_pass;
+
+/// A C/C++ source with its raw string literals masked (`maskCppRawStrings`).
+pub fn ccpp_mask_raw_strings(source: &str) -> String {
+    ccpp::preparse::mask_cpp_raw_strings(source).masked
+}
 pub use decode::decode;
 pub use langs::grammar_for;
 
